@@ -7,7 +7,7 @@ from telethon.errors import (
     ChatWriteForbiddenError, UserBannedInChannelError, SlowModeWaitError,
     PeerFloodError, AuthKeyUnregisteredError
 )
-from .message_queue import MessageTask
+from message_queue import MessageTask
 
 class MessageSender:
     """Основная логика отправки сообщений через Telegram"""
@@ -15,14 +15,31 @@ class MessageSender:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         
+        # Настройки таймаутов
+        self.RESOLVE_TIMEOUT = 15.0  # Таймаут поиска получателя
+        self.SEND_TIMEOUT = 30.0     # Таймаут отправки сообщения
+        self.MAX_FLOOD_WAIT = 3600   # Максимальное время ожидания FloodWait (1 час)
+        
     async def send_message(self, client: TelegramClient, task: MessageTask) -> Dict[str, Any]:
         """
-        Отправка сообщения через Telegram клиент
+        Отправка сообщения через Telegram клиент с таймаутами
         Возвращает результат отправки с деталями
         """
         try:
-            # Определяем получателя
-            recipient = await self._resolve_recipient(client, task)
+            # Определяем получателя с таймаутом
+            try:
+                recipient = await asyncio.wait_for(
+                    self._resolve_recipient(client, task), 
+                    timeout=self.RESOLVE_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                return {
+                    'success': False,
+                    'error': 'resolve_timeout',
+                    'message': f'Таймаут поиска получателя ({self.RESOLVE_TIMEOUT}с)',
+                    'should_retry': True
+                }
+            
             if not recipient:
                 return {
                     'success': False,
@@ -31,29 +48,62 @@ class MessageSender:
                     'should_retry': False
                 }
             
-            # Отправляем сообщение
-            message = await client.send_message(recipient, task.message_text)
+            # Отправляем сообщение с таймаутом
+            try:
+                message = await asyncio.wait_for(
+                    client.send_message(recipient, task.message_text),
+                    timeout=self.SEND_TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                return {
+                    'success': False,
+                    'error': 'send_timeout',
+                    'message': f'Таймаут отправки сообщения ({self.SEND_TIMEOUT}с)',
+                    'should_retry': True
+                }
             
-            self.logger.info(f"Сообщение отправлено успешно через {task.account_name}")
+            # Получаем информацию об отправителе с таймаутом
+            try:
+                me = await asyncio.wait_for(client.get_me(), timeout=5.0)
+                sender_info = f"{me.first_name} (@{me.username})" if me.username else me.first_name
+            except asyncio.TimeoutError:
+                sender_info = "Unknown"
+            
+            self.logger.info(f"✅ Сообщение отправлено от {sender_info} получателю {recipient.id} через аккаунт {task.account_name}")
             
             return {
                 'success': True,
                 'message_id': message.id,
                 'recipient': str(recipient),
-                'account': task.account_name
+                'recipient_id': recipient.id,
+                'account': task.account_name,
+                'sender_info': sender_info
             }
             
         except FloodWaitError as e:
-            # Превышен лимит скорости
-            self.logger.warning(f"FloodWait для {task.account_name}: {e.seconds}с")
-            return {
-                'success': False,
-                'error': 'flood_wait',
-                'wait_seconds': e.seconds,
-                'message': f'Нужно подождать {e.seconds} секунд',
-                'should_retry': True,
-                'should_block_account': e.seconds > 300  # Блокируем если ждать больше 5 минут
-            }
+            # Превышен лимит скорости - улучшенная обработка
+            wait_seconds = min(e.seconds, self.MAX_FLOOD_WAIT)  # Ограничиваем максимальное ожидание
+            
+            if e.seconds > self.MAX_FLOOD_WAIT:
+                self.logger.error(f"Критический FloodWait для {task.account_name}: {e.seconds}с (больше {self.MAX_FLOOD_WAIT}с)")
+                return {
+                    'success': False,
+                    'error': 'critical_flood_wait',
+                    'wait_seconds': e.seconds,
+                    'message': f'Критический FloodWait: {e.seconds}с',
+                    'should_retry': False,
+                    'should_block_account': True
+                }
+            else:
+                self.logger.warning(f"FloodWait для {task.account_name}: {e.seconds}с")
+                return {
+                    'success': False,
+                    'error': 'flood_wait',
+                    'wait_seconds': wait_seconds,
+                    'message': f'Нужно подождать {wait_seconds} секунд',
+                    'should_retry': True,
+                    'should_block_account': e.seconds > 300  # Блокируем если ждать больше 5 минут
+                }
             
         except PeerFloodError:
             # Слишком много запросов к новым пользователям
@@ -140,21 +190,50 @@ class MessageSender:
             }
     
     async def _resolve_recipient(self, client: TelegramClient, task: MessageTask):
-        """Определение получателя сообщения"""
+        """Определение получателя сообщения с таймаутами"""
         try:
-            # Приоритет: ID > username > phone
-            if task.recipient_id:
-                return await client.get_entity(task.recipient_id)
-            elif task.recipient_username:
+            self.logger.info(f"🔍 Ищу получателя: ID={task.recipient_id}, Username={task.recipient_username}, Phone={task.recipient_phone}")
+            
+            # Изменяем приоритет: username > ID > phone (username более надежен для новых контактов)
+            if task.recipient_username:
                 username = task.recipient_username.lstrip('@')
-                return await client.get_entity(username)
-            elif task.recipient_phone:
-                return await client.get_entity(task.recipient_phone)
-            else:
-                return None
+                self.logger.info(f"📋 Поиск по Username: {username}")
+                try:
+                    entity = await asyncio.wait_for(client.get_entity(username), timeout=10.0)
+                    self.logger.info(f"✅ Найден получатель по Username: {entity.first_name}")
+                    return entity
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Таймаут поиска по username: {username}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Не удалось найти по username: {e}")
+            
+            if task.recipient_id:
+                self.logger.info(f"📋 Поиск по User ID: {task.recipient_id}")
+                try:
+                    entity = await asyncio.wait_for(client.get_entity(task.recipient_id), timeout=10.0)
+                    self.logger.info(f"✅ Найден получатель по ID: {entity.first_name}")
+                    return entity
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Таймаут поиска по ID: {task.recipient_id}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Не удалось найти по ID: {e}")
+            
+            if task.recipient_phone:
+                self.logger.info(f"📋 Поиск по телефону: {task.recipient_phone}")
+                try:
+                    entity = await asyncio.wait_for(client.get_entity(task.recipient_phone), timeout=10.0)
+                    self.logger.info(f"✅ Найден получатель по телефону: {entity.first_name}")
+                    return entity
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Таймаут поиска по телефону: {task.recipient_phone}")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Не удалось найти по телефону: {e}")
+            
+            self.logger.error("❌ Не удалось найти получателя ни одним способом")
+            return None
                 
         except Exception as e:
-            self.logger.debug(f"Не удалось найти получателя: {e}")
+            self.logger.error(f"❌ Критическая ошибка поиска получателя: {e}")
             return None
     
     async def test_account_connection(self, client: TelegramClient, account_name: str) -> Dict[str, Any]:

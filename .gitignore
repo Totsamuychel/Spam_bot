@@ -164,6 +164,7 @@ config.json
 
 # Сессии аккаунтов (содержат приватные данные)
 sessions/*.session
+*.session
 
 # Логи
 *.log
@@ -172,6 +173,16 @@ logs/
 # Данные сообщений (могут содержать приватную информацию)
 data/messages_data.json
 data/failed_messages.json
+user_ids_results.json
+
+# Списки пользователей
+users.txt
+recipients.txt
+contacts.txt
+
+# Результаты проверок
+*_results.json
+*_output.json
 
 # Временные файлы
 temp/
@@ -180,6 +191,12 @@ tmp/
 # Backup files
 *.bak
 *.backup
+
+# Дополнительные чувствительные файлы
+accounts.txt
+phone_numbers.txt
+api_keys.txt
+tokens.txt
 
 # OS generated files
 .DS_Store

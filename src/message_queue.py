@@ -1,5 +1,6 @@
 import json
 import logging
+import queue
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from queue import Queue
@@ -89,8 +90,13 @@ class MessageQueue:
             # Создаем задачу отправки
             task = self._create_message_task(recipient, account_name)
             if task:
-                self.message_queue.put(task)
-                tasks_created += 1
+                try:
+                    self.message_queue.put(task)
+                    tasks_created += 1
+                except Exception as e:
+                    self.logger.error(f"Ошибка при добавлении задачи в очередь: {type(e).__name__}: {e}")
+                    # Добавляем в список неудачных если не можем поставить в очередь
+                    self.failed_messages.append(task)
         
         self.logger.info(f"Создано {tasks_created} задач в очереди")
         return tasks_created
@@ -132,21 +138,31 @@ class MessageQueue:
             if not self.message_queue.empty():
                 return self.message_queue.get_nowait()
             return None
-        except:
+        except queue.Empty:
+            # Это нормально - очередь пуста
+            return None
+        except Exception as e:
+            self.logger.error(f"Непредвиденная ошибка при получении задачи: {type(e).__name__}: {e}", 
+                            exc_info=True)
             return None
     
     def requeue_failed_task(self, task: MessageTask, max_retries: int = 3):
         """Вернуть неудачную задачу в очередь с увеличением счетчика попыток"""
-        task.retry_count += 1
-        
-        if task.retry_count <= max_retries:
-            # Понижаем приоритет для повторных попыток
-            task.priority = max(1, task.priority - 1)
-            self.message_queue.put(task)
-            self.logger.info(f"Задача возвращена в очередь (попытка {task.retry_count})")
-        else:
+        try:
+            task.retry_count += 1
+            
+            if task.retry_count <= max_retries:
+                # Понижаем приоритет для повторных попыток
+                task.priority = max(1, task.priority - 1)
+                self.message_queue.put(task)
+                self.logger.info(f"Задача возвращена в очередь (попытка {task.retry_count})")
+            else:
+                self.failed_messages.append(task)
+                self.logger.warning(f"Задача отправлена в список неудачных после {max_retries} попыток")
+        except Exception as e:
+            self.logger.error(f"Ошибка при повторной постановке задачи в очередь: {type(e).__name__}: {e}")
+            # В случае ошибки добавляем в список неудачных
             self.failed_messages.append(task)
-            self.logger.warning(f"Задача отправлена в список неудачных после {max_retries} попыток")
     
     def mark_task_completed(self, task: MessageTask):
         """Отметить задачу как выполненную"""
@@ -155,12 +171,21 @@ class MessageQueue:
     
     def get_queue_stats(self) -> Dict:
         """Получить статистику очереди"""
+        total_recipients = len(getattr(self, 'recipients', []))
+        completed_count = len(self.completed_messages)
+        
+        # Безопасный расчет процента завершения
+        if total_recipients > 0:
+            completion_rate = (completed_count / total_recipients) * 100
+        else:
+            completion_rate = 0.0
+            
         return {
             'pending_tasks': self.message_queue.qsize(),
-            'completed_tasks': len(self.completed_messages),
+            'completed_tasks': completed_count,
             'failed_tasks': len(self.failed_messages),
-            'total_recipients': len(getattr(self, 'recipients', [])),
-            'completion_rate': len(self.completed_messages) / len(getattr(self, 'recipients', [1])) * 100
+            'total_recipients': total_recipients,
+            'completion_rate': completion_rate
         }
     
     def redistribute_tasks(self, failed_account: str, available_accounts: List[str]):
@@ -174,26 +199,44 @@ class MessageQueue:
         
         # Извлекаем все задачи из очереди
         while not self.message_queue.empty():
-            task = self.message_queue.get_nowait()
-            
-            if task.account_name == failed_account:
-                # Назначаем новый аккаунт
-                task.account_name = random.choice(available_accounts)
-                redistributed += 1
+            try:
+                task = self.message_queue.get_nowait()
                 
-            temp_tasks.append(task)
+                if task.account_name == failed_account:
+                    # Назначаем новый аккаунт
+                    task.account_name = random.choice(available_accounts)
+                    redistributed += 1
+                    
+                temp_tasks.append(task)
+            except queue.Empty:
+                # Очередь опустела во время обработки
+                break
+            except Exception as e:
+                self.logger.error(f"Ошибка при перераспределении задач: {type(e).__name__}: {e}")
+                break
         
         # Возвращаем задачи в очередь
         for task in temp_tasks:
-            self.message_queue.put(task)
+            try:
+                self.message_queue.put(task)
+            except Exception as e:
+                self.logger.error(f"Ошибка при возврате задачи в очередь: {type(e).__name__}: {e}")
+                # Добавляем в список неудачных если не можем вернуть в очередь
+                self.failed_messages.append(task)
         
         self.logger.info(f"Перераспределено {redistributed} задач с аккаунта {failed_account}")
         return redistributed
     
     def clear_queue(self):
         """Очистить очередь"""
-        while not self.message_queue.empty():
-            self.message_queue.get_nowait()
+        try:
+            while not self.message_queue.empty():
+                try:
+                    self.message_queue.get_nowait()
+                except queue.Empty:
+                    break
+        except Exception as e:
+            self.logger.error(f"Ошибка при очистке очереди: {type(e).__name__}: {e}")
         
         self.completed_messages.clear()
         self.failed_messages.clear()

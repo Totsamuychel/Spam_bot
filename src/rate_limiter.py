@@ -13,9 +13,10 @@ class RateLimiter:
         self.MESSAGES_PER_HOUR = 200   # Сообщений в час
         self.NEW_CHATS_PER_DAY = 50    # Новых чатов в день
         
-        # Отслеживание отправленных сообщений по аккаунтам
-        self.message_history = defaultdict(lambda: deque())
-        self.new_chats_history = defaultdict(lambda: deque())
+        # Отслеживание отправленных сообщений по аккаунтам с ограничением размера
+        # Максимум 300 записей на аккаунт (достаточно для отслеживания часа работы)
+        self.message_history = defaultdict(lambda: deque(maxlen=300))
+        self.new_chats_history = defaultdict(lambda: deque(maxlen=100))  # Максимум 100 новых чатов
         self.account_penalties = defaultdict(int)  # Штрафы за блокировки
         
         self.logger = logging.getLogger(__name__)
@@ -80,19 +81,32 @@ class RateLimiter:
     
     def _cleanup_old_records(self, account_name: str, current_time: float):
         """Очистка старых записей для экономии памяти"""
-        # Удаляем записи старше суток
-        cutoff_time = current_time - 86400
-        
         # Очистка истории сообщений (оставляем только за последний час)
         hour_cutoff = current_time - 3600
-        while (self.message_history[account_name] and 
-               self.message_history[account_name][0] < hour_cutoff):
-            self.message_history[account_name].popleft()
+        message_deque = self.message_history[account_name]
+        
+        # Более эффективная очистка - удаляем старые записи пачками
+        while message_deque and message_deque[0] < hour_cutoff:
+            message_deque.popleft()
         
         # Очистка истории новых чатов (оставляем только за последние сутки)
-        while (self.new_chats_history[account_name] and 
-               self.new_chats_history[account_name][0] < cutoff_time):
-            self.new_chats_history[account_name].popleft()
+        day_cutoff = current_time - 86400
+        chats_deque = self.new_chats_history[account_name]
+        
+        while chats_deque and chats_deque[0] < day_cutoff:
+            chats_deque.popleft()
+        
+        # Дополнительная защита от переполнения памяти
+        # Если deque все еще слишком большой, оставляем только последние записи
+        if len(message_deque) > 250:
+            # Оставляем только последние 200 записей
+            new_deque = deque(list(message_deque)[-200:], maxlen=300)
+            self.message_history[account_name] = new_deque
+            
+        if len(chats_deque) > 80:
+            # Оставляем только последние 60 записей
+            new_deque = deque(list(chats_deque)[-60:], maxlen=100)
+            self.new_chats_history[account_name] = new_deque
     
     async def smart_delay(self, account_name: str, base_delay: float = 1.0):
         """Умная задержка с учетом нагрузки аккаунта"""
@@ -149,3 +163,45 @@ class RateLimiter:
             return 60.0 / self.MESSAGES_PER_MINUTE  # Равномерно в течение часа
         else:
             return 3600.0 / self.MESSAGES_PER_HOUR  # Равномерно с максимальной скоростью
+    
+    def cleanup_all_accounts(self):
+        """Полная очистка истории всех аккаунтов для освобождения памяти"""
+        current_time = time.time()
+        
+        for account_name in list(self.message_history.keys()):
+            self._cleanup_old_records(account_name, current_time)
+        
+        # Удаляем пустые записи
+        empty_accounts = [name for name, deque_obj in self.message_history.items() if not deque_obj]
+        for account_name in empty_accounts:
+            del self.message_history[account_name]
+            
+        empty_chats = [name for name, deque_obj in self.new_chats_history.items() if not deque_obj]
+        for account_name in empty_chats:
+            del self.new_chats_history[account_name]
+            
+        self.logger.info(f"Очищена история для {len(empty_accounts)} аккаунтов")
+    
+    def get_memory_usage_info(self) -> Dict:
+        """Получить информацию об использовании памяти"""
+        total_message_records = sum(len(deque_obj) for deque_obj in self.message_history.values())
+        total_chat_records = sum(len(deque_obj) for deque_obj in self.new_chats_history.values())
+        
+        return {
+            'accounts_tracked': len(self.message_history),
+            'total_message_records': total_message_records,
+            'total_chat_records': total_chat_records,
+            'memory_usage_estimate_mb': (total_message_records + total_chat_records) * 0.001,  # Примерная оценка
+            'accounts_with_penalties': len([p for p in self.account_penalties.values() if p > 0])
+        }
+    
+    def force_cleanup_account(self, account_name: str):
+        """Принудительная очистка истории конкретного аккаунта"""
+        if account_name in self.message_history:
+            self.message_history[account_name].clear()
+        if account_name in self.new_chats_history:
+            self.new_chats_history[account_name].clear()
+        if account_name in self.account_penalties:
+            self.account_penalties[account_name] = 0
+        
+        self.logger.info(f"Принудительно очищена история аккаунта {account_name}")

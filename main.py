@@ -18,6 +18,7 @@ from src.account_manager import AccountManager
 from src.rate_limiter import RateLimiter
 from src.message_queue import MessageQueue, MessageTask
 from src.sender import MessageSender
+from src.auth_manager import AuthManager
 
 class TelegramBot:
     """Главный класс бота для управления рассылкой"""
@@ -29,6 +30,7 @@ class TelegramBot:
         self.rate_limiter = RateLimiter()
         self.message_queue = MessageQueue()
         self.sender = MessageSender()
+        self.auth_manager = None  # Инициализируется после загрузки конфига
         
         self.is_running = False
         self.stats = {
@@ -83,22 +85,50 @@ class TelegramBot:
         if not self.load_config():
             return False
         
+        # Инициализируем менеджер авторизации
+        self.auth_manager = AuthManager(self.api_id, self.api_hash)
+        
         # Загружаем аккаунты
         if not self.account_manager.load_accounts():
-            self.logger.error("Не удалось загрузить аккаунты")
-            return False
+            print("\n⚠️ Не найдено аккаунтов для рассылки!")
+            print("Необходимо добавить хотя бы один аккаунт.")
+            
+            add_account = input("Хотите добавить аккаунт сейчас? (y/n): ").strip().lower()
+            if add_account == 'y':
+                success = await self.auth_manager.add_new_account()
+                if success:
+                    # Перезагружаем аккаунты
+                    if not self.account_manager.load_accounts():
+                        self.logger.error("Не удалось загрузить аккаунты после добавления")
+                        return False
+                else:
+                    self.logger.error("Не удалось добавить аккаунт")
+                    return False
+            else:
+                self.logger.error("Нет аккаунтов для работы")
+                return False
         
         # Подключаем аккаунты
         connected_accounts = 0
         for account_name in self.account_manager.accounts.keys():
             if await self.account_manager.connect_account(account_name, self.api_id, self.api_hash):
                 connected_accounts += 1
+                # Получаем информацию об аккаунте
+                account_data = self.account_manager.accounts[account_name]
+                if account_data['client']:
+                    try:
+                        me = await account_data['client'].get_me()
+                        account_info = f"{me.first_name} (@{me.username})" if me.username else me.first_name
+                        self.logger.info(f"✅ Подключен аккаунт {account_name}: {account_info}")
+                    except Exception as e:
+                        self.logger.warning(f"Не удалось получить информацию об аккаунте {account_name}: {e}")
+                        self.logger.info(f"✅ Подключен аккаунт {account_name}")
         
         if connected_accounts == 0:
             self.logger.error("Не удалось подключить ни одного аккаунта")
             return False
         
-        self.logger.info(f"Подключено {connected_accounts} аккаунтов")
+        self.logger.info(f"Всего подключено {connected_accounts} аккаунтов")
         
         # Загружаем данные сообщений
         if not self.message_queue.load_messages_data():
@@ -134,8 +164,24 @@ class TelegramBot:
             self.logger.info(f"Начинаем рассылку {tasks_created} сообщений через {len(active_accounts)} аккаунтов")
             
             # Основной цикл рассылки
+            message_count = 0
             while self.is_running and not self.message_queue.message_queue.empty():
                 await self.process_message_batch()
+                message_count += 1
+                
+                # Очистка памяти каждые 100 сообщений
+                if message_count % 100 == 0:
+                    self.rate_limiter.cleanup_all_accounts()
+                    self.logger.info(f"🧹 Очистка памяти после {message_count} сообщений")
+                
+                # Проверка здоровья подключений каждые 50 сообщений
+                if message_count % 50 == 0:
+                    try:
+                        reconnected = await self.account_manager.auto_reconnect_failed(self.api_id, self.api_hash)
+                        if reconnected > 0:
+                            self.logger.info(f"🔄 Переподключено {reconnected} аккаунтов")
+                    except Exception as e:
+                        self.logger.warning(f"Ошибка при проверке здоровья подключений: {e}")
                 
                 # Небольшая пауза между батчами
                 await asyncio.sleep(1)
@@ -159,29 +205,27 @@ class TelegramBot:
             self.is_running = False
             return
         
-        # Обрабатываем задачи для каждого активного аккаунта
-        tasks = []
-        for account_name in active_accounts:
-            task = self.message_queue.get_next_task()
-            if task and task.account_name == account_name:
-                tasks.append(self.process_single_message(task))
-            elif task:
-                # Возвращаем задачу в очередь если она для другого аккаунта
-                self.message_queue.message_queue.put(task)
-        
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        # Обрабатываем задачи по одной
+        task = self.message_queue.get_next_task()
+        if task:
+            await self.process_single_message(task)
+        else:
+            # Если задач нет, завершаем
+            self.is_running = False
     
     async def process_single_message(self, task: MessageTask):
         """Обработка одного сообщения"""
         account_name = task.account_name
         
         try:
+            self.logger.info(f"🔄 Обрабатываю задачу для аккаунта {account_name}")
+            self.logger.info(f"📋 Получатель: ID={task.recipient_id}, Username={task.recipient_username}, Phone={task.recipient_phone}")
+            
             # Проверяем лимиты
             can_send, wait_time = self.rate_limiter.can_send_message(account_name, task.is_new_chat)
             
             if not can_send:
-                self.logger.info(f"Лимит для {account_name}, ждем {wait_time:.1f}с")
+                self.logger.info(f"⏳ Лимит для {account_name}, ждем {wait_time:.1f}с")
                 await asyncio.sleep(wait_time)
                 # Возвращаем задачу в очередь
                 self.message_queue.message_queue.put(task)
@@ -192,12 +236,17 @@ class TelegramBot:
             client = account_data['client']
             
             if not client:
-                self.logger.error(f"Клиент для {account_name} не найден")
+                self.logger.error(f"❌ Клиент для {account_name} не найден")
                 self.message_queue.requeue_failed_task(task)
+                self.stats['messages_failed'] += 1
                 return
+            
+            self.logger.info(f"📤 Отправляю сообщение через {account_name}")
             
             # Отправляем сообщение
             result = await self.sender.send_message(client, task)
+            
+            self.logger.info(f"📊 Результат отправки: {result}")
             
             # Анализируем результат
             analysis = self.sender.analyze_send_result(result)
@@ -208,16 +257,20 @@ class TelegramBot:
                 self.message_queue.mark_task_completed(task)
                 self.stats['messages_sent'] += 1
                 
+                self.logger.info(f"✅ Сообщение успешно отправлено!")
+                
                 # Умная задержка
                 await self.rate_limiter.smart_delay(account_name)
                 
             else:
                 # Обработка ошибки
+                self.logger.warning(f"❌ Ошибка отправки: {result.get('error', 'Unknown')}")
                 await self.handle_send_error(task, result, analysis)
             
         except Exception as e:
-            self.logger.error(f"Ошибка обработки сообщения для {account_name}: {e}")
+            self.logger.error(f"💥 Критическая ошибка обработки сообщения для {account_name}: {e}")
             self.message_queue.requeue_failed_task(task)
+            self.stats['messages_failed'] += 1
     
     async def handle_send_error(self, task: MessageTask, result: Dict, analysis: Dict):
         """Обработка ошибок отправки"""
@@ -294,7 +347,11 @@ async def main():
             print("2. Показать статистику аккаунтов")
             print("3. Показать лимиты аккаунтов")
             print("4. Тест подключения аккаунтов")
-            print("5. Выход")
+            print("5. 🔐 Управление аккаунтами (добавить/проверить)")
+            print("6. 📋 Показать все аккаунты с подробной информацией")
+            print("7. 🧹 Очистить память и сбросить лимиты")
+            print("8. 🔄 Проверить и переподключить аккаунты")
+            print("9. Выход")
             
             choice = input("Выберите действие: ").strip()
             
@@ -308,17 +365,109 @@ async def main():
                 print(json.dumps(stats, indent=2, ensure_ascii=False))
                 
             elif choice == '3':
+                print("\n📊 ЛИМИТЫ И ИСПОЛЬЗОВАНИЕ ПАМЯТИ")
+                print("="*50)
+                
+                # Информация об использовании памяти
+                memory_info = bot.rate_limiter.get_memory_usage_info()
+                print(f"💾 Использование памяти:")
+                print(f"   Отслеживается аккаунтов: {memory_info['accounts_tracked']}")
+                print(f"   Записей сообщений: {memory_info['total_message_records']}")
+                print(f"   Записей чатов: {memory_info['total_chat_records']}")
+                print(f"   Примерное использование: {memory_info['memory_usage_estimate_mb']:.2f} MB")
+                print(f"   Аккаунтов со штрафами: {memory_info['accounts_with_penalties']}")
+                
+                print(f"\n📋 Лимиты по аккаунтам:")
                 for account_name in bot.account_manager.accounts.keys():
                     limits = bot.rate_limiter.get_account_limits_info(account_name)
-                    print(f"{account_name}: {limits}")
+                    print(f"   {account_name}: {limits}")
                     
             elif choice == '4':
-                for account_name, data in bot.account_manager.accounts.items():
-                    if data['client']:
-                        result = await bot.sender.test_account_connection(data['client'], account_name)
-                        print(f"{account_name}: {'OK' if result['success'] else 'ERROR'}")
+                print("\n🔍 ТЕСТ ПОДКЛЮЧЕНИЯ АККАУНТОВ")
+                print("="*50)
+                
+                if not bot.account_manager.accounts:
+                    print("📭 Нет загруженных аккаунтов")
+                else:
+                    for account_name, data in bot.account_manager.accounts.items():
+                        if data['client'] and data['is_active']:
+                            result = await bot.sender.test_account_connection(data['client'], account_name)
+                            if result['success']:
+                                account_info = result['account_info']
+                                username = f"@{account_info['username']}" if account_info['username'] else "Нет username"
+                                print(f"✅ {account_name}: {account_info['first_name']} ({username}) - ID: {account_info['id']}")
+                                print(f"   📞 Телефон: +{account_info['phone']}")
+                            else:
+                                print(f"❌ {account_name}: ERROR - {result.get('error', 'Unknown error')}")
+                        else:
+                            print(f"⚠️ {account_name}: Не подключен или неактивен")
                         
             elif choice == '5':
+                await bot.auth_manager.interactive_account_management()
+                # Перезагружаем аккаунты после изменений
+                bot.account_manager.load_accounts()
+                
+            elif choice == '6':
+                print("\n🔍 ПРОВЕРКА ВСЕХ АККАУНТОВ")
+                print("="*60)
+                accounts = await bot.auth_manager.list_all_accounts()
+                if not accounts:
+                    print("📭 Нет добавленных аккаунтов")
+                else:
+                    print(f"Найдено {len(accounts)} аккаунтов:")
+                    for account in accounts:
+                        bot.auth_manager.print_account_info(account)
+                        
+            elif choice == '7':
+                print("\n🧹 ОЧИСТКА ПАМЯТИ")
+                print("="*30)
+                
+                # Показываем текущее использование
+                memory_info = bot.rate_limiter.get_memory_usage_info()
+                print(f"Текущее использование: {memory_info['memory_usage_estimate_mb']:.2f} MB")
+                print(f"Записей в памяти: {memory_info['total_message_records'] + memory_info['total_chat_records']}")
+                
+                confirm = input("Очистить всю историю лимитов? (y/n): ").strip().lower()
+                if confirm == 'y':
+                    bot.rate_limiter.cleanup_all_accounts()
+                    
+                    # Сбрасываем штрафы если нужно
+                    reset_penalties = input("Сбросить штрафы аккаунтов? (y/n): ").strip().lower()
+                    if reset_penalties == 'y':
+                        for account_name in bot.account_manager.accounts.keys():
+                            bot.rate_limiter.reset_account_penalties(account_name)
+                    
+                    print("✅ Память очищена!")
+                    
+                    # Показываем новое использование
+                    new_memory_info = bot.rate_limiter.get_memory_usage_info()
+                    print(f"Новое использование: {new_memory_info['memory_usage_estimate_mb']:.2f} MB")
+                
+            elif choice == '8':
+                print("\n🔄 ПРОВЕРКА И ПЕРЕПОДКЛЮЧЕНИЕ АККАУНТОВ")
+                print("="*50)
+                
+                # Проверяем здоровье подключений
+                health_status = await bot.account_manager.check_connections_health()
+                
+                healthy_count = sum(health_status.values())
+                total_count = len(health_status)
+                
+                print(f"Здоровых подключений: {healthy_count}/{total_count}")
+                
+                for account_name, is_healthy in health_status.items():
+                    status_icon = "✅" if is_healthy else "❌"
+                    print(f"  {status_icon} {account_name}")
+                
+                if healthy_count < total_count:
+                    reconnect = input(f"\nПереподключить {total_count - healthy_count} неудачных аккаунтов? (y/n): ").strip().lower()
+                    if reconnect == 'y':
+                        reconnected = await bot.account_manager.auto_reconnect_failed(bot.api_id, bot.api_hash)
+                        print(f"✅ Переподключено: {reconnected} аккаунтов")
+                else:
+                    print("✅ Все аккаунты работают нормально!")
+                
+            elif choice == '9':
                 break
                 
             else:

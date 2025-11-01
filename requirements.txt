@@ -1,0 +1,8 @@
+telethon==1.34.0
+asyncio
+json
+logging
+time
+random
+os
+configparser

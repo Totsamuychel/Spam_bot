@@ -19,6 +19,7 @@ from src.rate_limiter import RateLimiter
 from src.message_queue import MessageQueue, MessageTask
 from src.sender import MessageSender
 from src.auth_manager import AuthManager
+from src.channel_scraper_integration import TelegramChannelScraper
 
 class TelegramBot:
     """Главный класс бота для управления рассылкой"""
@@ -87,6 +88,9 @@ class TelegramBot:
         
         # Инициализируем менеджер авторизации
         self.auth_manager = AuthManager(self.api_id, self.api_hash)
+        
+        # Инициализируем скрайпер каналов
+        self.channel_scraper = TelegramChannelScraper(self.api_id, self.api_hash)
         
         # Загружаем аккаунты
         if not self.account_manager.load_accounts():
@@ -323,6 +327,71 @@ class TelegramBot:
         self.logger.info(f"Процент успеха: {queue_stats['completion_rate']:.1f}%")
         self.logger.info(f"Активных аккаунтов: {account_stats['active_accounts']}")
     
+    async def scrape_channel_to_recipients(self, channel_username: str, message_text: str = None) -> bool:
+        """Собрать участников канала и загрузить в очередь сообщений"""
+        try:
+            self.logger.info(f"🔄 Начало сбора участников канала: {channel_username}")
+            
+            # Если сообщение не указано, запрашиваем у пользователя
+            if not message_text:
+                message_text = input("📝 Введите текст сообщения для рассылки: ").strip()
+                if not message_text:
+                    message_text = "Привет! Это сообщение от бота рассылки."
+            
+            # Сначала получаем информацию о канале
+            channel_info = await self.channel_scraper.get_channel_info(channel_username)
+            if channel_info:
+                self.logger.info(f"📺 Канал: {channel_info['title']}")
+                self.logger.info(f"👥 Участников: {channel_info.get('participants_count', 'неизвестно')}")
+                
+                # Подтверждение от пользователя
+                confirm = input(f"Собрать участников канала '{channel_info['title']}'? (y/n): ").strip().lower()
+                if confirm != 'y':
+                    self.logger.info("❌ Сбор отменен пользователем")
+                    return False
+            
+            # Настройки сбора
+            print("\n⚙️ Настройки сбора:")
+            delay_input = input("Задержка между пользователями (сек, по умолчанию 0.1): ").strip()
+            max_users_input = input("Максимум пользователей (по умолчанию 10000): ").strip()
+            
+            delay = float(delay_input) if delay_input else 0.1
+            max_users = int(max_users_input) if max_users_input else 10000
+            
+            self.channel_scraper.set_collection_settings(delay, max_users)
+            
+            # Выполняем сбор
+            success = await self.channel_scraper.scrape_channel_to_json(
+                channel_username,
+                output_file="data/messages_data.json",
+                message_text=message_text
+            )
+            
+            if success:
+                # Перезагружаем данные в очередь сообщений
+                if self.message_queue.load_messages_data():
+                    stats = self.channel_scraper.get_stats()
+                    self.logger.info(f"✅ Загружено {len(self.message_queue.recipients)} получателей из канала")
+                    self.logger.info(f"📊 Статистика: {stats}")
+                    
+                    print(f"\n📊 РЕЗУЛЬТАТЫ СБОРА:")
+                    print(f"   Всего пользователей: {stats['total_users']}")
+                    print(f"   С username: {stats['users_with_username']}")
+                    print(f"   С телефоном: {stats['users_with_phone']}")
+                    print(f"   С именем: {stats['users_with_display_name']}")
+                    
+                    return True
+                else:
+                    self.logger.error("❌ Не удалось загрузить собранные данные")
+                    return False
+            else:
+                self.logger.error("❌ Сбор участников канала не удался")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"💥 Ошибка при сборе канала: {e}", exc_info=True)
+            return False
+    
     def stop_sending(self):
         """Остановка рассылки"""
         self.logger.info("Получен сигнал остановки рассылки")
@@ -348,7 +417,8 @@ async def main():
             print("6. 📋 Показать все аккаунты с подробной информацией")
             print("7. 🧹 Очистить память и сбросить лимиты")
             print("8. 🔄 Проверить и переподключить аккаунты")
-            print("9. Выход")
+            print("9. 📺 Собрать участников из Telegram канала")
+            print("0. Выход")
             
             choice = input("Выберите действие: ").strip()
             
@@ -465,6 +535,41 @@ async def main():
                     print("✅ Все аккаунты работают нормально!")
                 
             elif choice == '9':
+                print("\n📺 СБОР УЧАСТНИКОВ КАНАЛА")
+                print("="*50)
+                print("⚠️ Для сбора участников нужна авторизация.")
+                print("Будет использована отдельная сессия для скрайпера.")
+                
+                # Проверяем есть ли уже авторизованная сессия скрайпера
+                scraper_session_exists = os.path.exists("channel_scraper.session")
+                if not scraper_session_exists:
+                    print("\n🔐 Требуется авторизация для скрайпера каналов...")
+                    auth_choice = input("Авторизовать скрайпер сейчас? (y/n): ").strip().lower()
+                    if auth_choice != 'y':
+                        print("❌ Сбор отменен")
+                        continue
+                    
+                    # Авторизуем скрайпер
+                    success = await bot.auth_manager.add_new_account("channel_scraper")
+                    if not success:
+                        print("❌ Не удалось авторизовать скрайпер")
+                        continue
+                
+                channel = input("\nВведите username канала (например: @python или python): ").strip()
+                if channel:
+                    try:
+                        success = await bot.scrape_channel_to_recipients(channel)
+                        if success:
+                            print("✅ Участники канала успешно собраны!")
+                            print("Теперь можете начать рассылку (пункт 1)")
+                        else:
+                            print("❌ Не удалось собрать участников канала")
+                    except Exception as e:
+                        print(f"❌ Ошибка: {e}")
+                else:
+                    print("❌ Username канала не может быть пустым")
+                
+            elif choice == '0':
                 break
                 
             else:

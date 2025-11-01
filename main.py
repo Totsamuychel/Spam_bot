@@ -327,16 +327,13 @@ class TelegramBot:
         self.logger.info(f"Процент успеха: {queue_stats['completion_rate']:.1f}%")
         self.logger.info(f"Активных аккаунтов: {account_stats['active_accounts']}")
     
-    async def scrape_channel_to_recipients(self, channel_username: str, message_text: str = None) -> bool:
+    async def scrape_channel_to_recipients(self, channel_username: str) -> bool:
         """Собрать участников канала и загрузить в очередь сообщений"""
         try:
             self.logger.info(f"🔄 Начало сбора участников канала: {channel_username}")
             
-            # Если сообщение не указано, запрашиваем у пользователя
-            if not message_text:
-                message_text = input("📝 Введите текст сообщения для рассылки: ").strip()
-                if not message_text:
-                    message_text = "Привет! Это сообщение от бота рассылки."
+            # Используем временное сообщение, которое будет заменено при рассылке
+            message_text = "Временное сообщение - будет заменено при рассылке"
             
             # Сначала получаем информацию о канале
             channel_info = await self.channel_scraper.get_channel_info(channel_username)
@@ -423,8 +420,53 @@ async def main():
             choice = input("Выберите действие: ").strip()
             
             if choice == '1':
+                print("\n🚀 ПОДГОТОВКА К РАССЫЛКЕ")
+                print("="*50)
+                
+                # Проверяем есть ли получатели
+                if not hasattr(bot.message_queue, 'recipients') or not bot.message_queue.recipients:
+                    print("❌ Нет загруженных получателей!")
+                    print("Сначала загрузите получателей:")
+                    print("  • Пункт 9: Собрать из канала")
+                    print("  • Или поместите данные в data/messages_data.json")
+                    continue
+                
+                print(f"📋 Загружено получателей: {len(bot.message_queue.recipients)}")
+                
+                # Запрашиваем текст сообщения
+                print("\n📝 Введите текст сообщения для рассылки:")
+                print("(Можете использовать многострочный текст, завершите пустой строкой)")
+                
+                message_lines = []
+                while True:
+                    line = input()
+                    if line.strip() == "":
+                        break
+                    message_lines.append(line)
+                
+                if not message_lines:
+                    print("❌ Сообщение не может быть пустым")
+                    continue
+                
+                message_text = "\n".join(message_lines)
+                
+                # Обновляем сообщение в очереди
+                bot.message_queue.message_text = message_text
+                
+                # Показываем превью
+                print(f"\n📄 ПРЕВЬЮ СООБЩЕНИЯ:")
+                print("-" * 40)
+                print(message_text[:200] + ("..." if len(message_text) > 200 else ""))
+                print("-" * 40)
+                
+                confirm = input("Начать рассылку с этим сообщением? (y/n): ").strip().lower()
+                if confirm != 'y':
+                    print("❌ Рассылка отменена")
+                    continue
+                
                 max_msg = input("Максимум сообщений (Enter для всех): ").strip()
                 max_messages = int(max_msg) if max_msg.isdigit() else None
+                
                 await bot.start_sending(max_messages)
                 
             elif choice == '2':
@@ -540,34 +582,71 @@ async def main():
                 print("⚠️ Для сбора участников нужна авторизация.")
                 print("Будет использована отдельная сессия для скрайпера.")
                 
-                # Проверяем есть ли уже авторизованная сессия скрайпера
-                scraper_session_exists = os.path.exists("channel_scraper.session")
-                if not scraper_session_exists:
-                    print("\n🔐 Требуется авторизация для скрайпера каналов...")
-                    auth_choice = input("Авторизовать скрайпер сейчас? (y/n): ").strip().lower()
-                    if auth_choice != 'y':
-                        print("❌ Сбор отменен")
-                        continue
-                    
-                    # Авторизуем скрайпер
-                    success = await bot.auth_manager.add_new_account("channel_scraper")
-                    if not success:
-                        print("❌ Не удалось авторизовать скрайпер")
-                        continue
+                # Используем существующую сессию одного из аккаунтов для скрайпера
+                active_accounts = await bot.account_manager.get_active_accounts_list()
+                if not active_accounts:
+                    print("❌ Нет активных аккаунтов для сбора канала")
+                    print("Сначала подключите хотя бы один аккаунт")
+                    continue
                 
-                channel = input("\nВведите username канала (например: @python или python): ").strip()
-                if channel:
-                    try:
-                        success = await bot.scrape_channel_to_recipients(channel)
-                        if success:
+                # Используем первый активный аккаунт для скрайпера
+                scraper_account = active_accounts[0]
+                print(f"🔐 Будет использован аккаунт {scraper_account} для сбора канала")
+                
+                print("\n📋 Поддерживаемые форматы:")
+                print("   • Ссылка: https://t.me/channelname")
+                print("   • Ссылка: t.me/channelname") 
+                print("   • Username: @channelname")
+                print("   • Username: channelname")
+                
+                channel = input("\n🔗 Введите ссылку на канал или его username: ").strip()
+                
+                if not channel:
+                    print("❌ Ссылка на канал не может быть пустой")
+                    continue
+                
+                # Валидация ввода
+                if not bot.channel_scraper.validate_channel_input(channel):
+                    print("❌ Неверный формат ссылки или username канала")
+                    print("Примеры правильных форматов:")
+                    print("  • https://t.me/channelname")
+                    print("  • t.me/channelname")
+                    print("  • @channelname")
+                    print("  • channelname")
+                    continue
+                
+                try:
+                    # Используем сессию активного аккаунта
+                    account_data = bot.account_manager.accounts[scraper_account]
+                    session_path = account_data['session_path'].replace('.session', '')
+                    
+                    # Создаем временный скрайпер с существующей сессией
+                    from src.channel_scraper_integration import TelegramChannelScraper
+                    temp_scraper = TelegramChannelScraper(bot.api_id, bot.api_hash, session_path)
+                    
+                    success = await temp_scraper.scrape_channel_to_json(
+                        channel,
+                        output_file="data/messages_data.json",
+                        message_text="Временное сообщение - будет заменено при рассылке"
+                    )
+                    
+                    if success:
+                        # Перезагружаем данные в очередь
+                        if bot.message_queue.load_messages_data():
+                            stats = temp_scraper.get_stats()
                             print("✅ Участники канала успешно собраны!")
-                            print("Теперь можете начать рассылку (пункт 1)")
+                            print(f"📊 Собрано пользователей: {stats['total_users']}")
+                            print(f"   • С username: {stats['users_with_username']}")
+                            print(f"   • С именем: {stats['users_with_display_name']}")
+                            print("\nТеперь можете начать рассылку (пункт 1)")
                         else:
-                            print("❌ Не удалось собрать участников канала")
-                    except Exception as e:
-                        print(f"❌ Ошибка: {e}")
-                else:
-                    print("❌ Username канала не может быть пустым")
+                            print("❌ Не удалось загрузить собранные данные")
+                    else:
+                        print("❌ Не удалось собрать участников канала")
+                        
+                except Exception as e:
+                    print(f"❌ Ошибка: {e}")
+                    bot.logger.error(f"Ошибка сбора канала: {e}", exc_info=True)
                 
             elif choice == '0':
                 break

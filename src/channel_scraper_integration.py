@@ -50,8 +50,10 @@ class TelegramChannelScraper:
                 return False
             
             # Получение канала
-            self.logger.info(f"🔍 Поиск канала: {channel_username}")
-            channel_username = channel_username.lstrip('@')  # Убираем @ если есть
+            self.logger.info(f"🔍 Исходный ввод: {channel_username}")
+            extracted_username = self._extract_channel_username(channel_username)
+            self.logger.info(f"🔍 Извлеченный username: {extracted_username}")
+            channel_username = extracted_username
             
             try:
                 channel = await asyncio.wait_for(
@@ -188,7 +190,7 @@ class TelegramChannelScraper:
             if not await client.is_user_authorized():
                 return None
             
-            channel_username = channel_username.lstrip('@')
+            channel_username = self._extract_channel_username(channel_username)
             channel = await client.get_entity(channel_username)
             
             info = {
@@ -213,6 +215,35 @@ class TelegramChannelScraper:
                     await client.disconnect()
                 except:
                     pass
+    
+    @staticmethod
+    def _extract_channel_username(channel_input: str) -> str:
+        """Извлечь username канала из различных форматов ввода"""
+        channel_input = channel_input.strip()
+        
+        # Если это ссылка t.me
+        if 't.me/' in channel_input:
+            # Извлекаем часть после t.me/
+            username = channel_input.split('t.me/')[-1]
+            # Убираем возможные параметры после ?
+            username = username.split('?')[0]
+            # Убираем слэш в конце если есть
+            username = username.rstrip('/')
+            return username
+        
+        # Если это ссылка telegram.me
+        if 'telegram.me/' in channel_input:
+            username = channel_input.split('telegram.me/')[-1]
+            username = username.split('?')[0]
+            username = username.rstrip('/')
+            return username
+        
+        # Если начинается с @, убираем его
+        if channel_input.startswith('@'):
+            return channel_input[1:]
+        
+        # Если это просто username
+        return channel_input
     
     @staticmethod
     def _get_display_name(user) -> Optional[str]:
@@ -247,3 +278,21 @@ class TelegramChannelScraper:
         self.DELAY_BETWEEN_USERS = delay
         self.MAX_USERS_PER_CHANNEL = max_users
         self.logger.info(f"⚙️ Настройки сбора: задержка={delay}с, макс_пользователей={max_users}")
+    
+    @staticmethod
+    def validate_channel_input(channel_input: str) -> bool:
+        """Проверить корректность ввода канала"""
+        if not channel_input or not channel_input.strip():
+            return False
+        
+        channel_input = channel_input.strip()
+        
+        # Проверяем различные форматы
+        valid_patterns = [
+            't.me/' in channel_input,
+            'telegram.me/' in channel_input,
+            channel_input.startswith('@'),
+            channel_input.replace('_', '').replace('-', '').isalnum()  # Простой username
+        ]
+        
+        return any(valid_patterns)

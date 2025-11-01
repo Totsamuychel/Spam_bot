@@ -3,7 +3,6 @@ import json
 import logging
 import asyncio
 from typing import List, Dict, Optional
-from threading import Lock
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 
@@ -15,7 +14,7 @@ class AccountManager:
         self.accounts = {}
         self.blocked_accounts = set()
         self.current_account_index = 0
-        self._account_lock = Lock()  # Защита от race conditions
+        self._account_lock = asyncio.Lock()  # Защита от race conditions
         self.logger = logging.getLogger(__name__)
         
     def load_accounts(self) -> bool:
@@ -49,7 +48,7 @@ class AccountManager:
             return True
             
         except Exception as e:
-            self.logger.error(f"Ошибка загрузки аккаунтов: {e}")
+            self.logger.error(f"Ошибка загрузки аккаунтов: {e}", exc_info=True)
             return False
     
     async def connect_account(self, account_name: str, api_id: int, api_hash: str, max_retries: int = 3) -> bool:
@@ -135,14 +134,14 @@ class AccountManager:
                     except:
                         pass
                 
-                self.logger.error(f"Критическая ошибка подключения {account_name}: {type(e).__name__}: {e}")
+                self.logger.error(f"Критическая ошибка подключения {account_name}: {type(e).__name__}: {e}", exc_info=True)
                 return False
         
         return False
     
-    def get_next_active_account(self) -> Optional[str]:
-        """Получение следующего активного аккаунта для отправки (thread-safe)"""
-        with self._account_lock:  # Защита от race conditions
+    async def get_next_active_account(self) -> Optional[str]:
+        """Получение следующего активного аккаунта для отправки (async-safe)"""
+        async with self._account_lock:  # Защита от race conditions
             active_accounts = [name for name, data in self.accounts.items() 
                               if data['is_active'] and name not in self.blocked_accounts]
             
@@ -159,18 +158,18 @@ class AccountManager:
             
             return account_name
     
-    def mark_account_blocked(self, account_name: str, reason: str = ""):
-        """Пометить аккаунт как заблокированный (thread-safe)"""
-        with self._account_lock:
+    async def mark_account_blocked(self, account_name: str, reason: str = ""):
+        """Пометить аккаунт как заблокированный (async-safe)"""
+        async with self._account_lock:
             if account_name in self.accounts:
                 self.blocked_accounts.add(account_name)
                 self.accounts[account_name]['status'] = f'blocked: {reason}'
                 self.accounts[account_name]['is_active'] = False
                 self.logger.warning(f"Аккаунт {account_name} помечен как заблокированный: {reason}")
     
-    def unblock_account(self, account_name: str):
-        """Разблокировать аккаунт (thread-safe)"""
-        with self._account_lock:
+    async def unblock_account(self, account_name: str):
+        """Разблокировать аккаунт (async-safe)"""
+        async with self._account_lock:
             if account_name in self.blocked_accounts:
                 self.blocked_accounts.remove(account_name)
                 self.accounts[account_name]['status'] = 'ready'
@@ -275,6 +274,12 @@ class AccountManager:
         
         return health_status
     
+    async def get_active_accounts_list(self) -> List[str]:
+        """Получить список активных аккаунтов (async-safe)"""
+        async with self._account_lock:
+            return [name for name, data in self.accounts.items() 
+                   if data['is_active'] and name not in self.blocked_accounts]
+    
     async def auto_reconnect_failed(self, api_id: int, api_hash: str) -> int:
         """Автоматическое переподключение неудачных аккаунтов"""
         health_status = await self.check_connections_health()
@@ -313,5 +318,5 @@ class AccountManager:
             return True
             
         except Exception as e:
-            self.logger.error(f"Ошибка добавления аккаунта {account_name}: {e}")
+            self.logger.error(f"Ошибка добавления аккаунта {account_name}: {e}", exc_info=True)
             return False

@@ -55,7 +55,7 @@ class MessageQueue:
             self.logger.error(f"Ошибка парсинга JSON: {e}")
             return False
         except Exception as e:
-            self.logger.error(f"Ошибка загрузки данных: {e}")
+            self.logger.error(f"Ошибка загрузки данных: {e}", exc_info=True)
             return False
     
     def create_message_queue(self, available_accounts: List[str], max_messages: Optional[int] = None) -> int:

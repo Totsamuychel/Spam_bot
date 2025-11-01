@@ -85,7 +85,7 @@ class MessageSender:
             wait_seconds = min(e.seconds, self.MAX_FLOOD_WAIT)  # Ограничиваем максимальное ожидание
             
             if e.seconds > self.MAX_FLOOD_WAIT:
-                self.logger.error(f"Критический FloodWait для {task.account_name}: {e.seconds}с (больше {self.MAX_FLOOD_WAIT}с)")
+                self.logger.error(f"Критический FloodWait для {task.account_name}: {e.seconds}с (больше {self.MAX_FLOOD_WAIT}с)", exc_info=True)
                 return {
                     'success': False,
                     'error': 'critical_flood_wait',
@@ -233,7 +233,7 @@ class MessageSender:
             return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Критическая ошибка поиска получателя: {e}")
+            self.logger.error(f"❌ Критическая ошибка поиска получателя: {e}", exc_info=True)
             return None
     
     async def test_account_connection(self, client: TelegramClient, account_name: str) -> Dict[str, Any]:
@@ -257,7 +257,7 @@ class MessageSender:
             }
             
         except Exception as e:
-            self.logger.error(f"Ошибка тестирования аккаунта {account_name}: {e}")
+            self.logger.error(f"Ошибка тестирования аккаунта {account_name}: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e)
@@ -281,7 +281,7 @@ class MessageSender:
             }
             
         except Exception as e:
-            self.logger.error(f"Ошибка получения статуса лимитов: {e}")
+            self.logger.error(f"Ошибка получения статуса лимитов: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e)

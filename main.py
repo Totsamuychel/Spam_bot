@@ -148,8 +148,7 @@ class TelegramBot:
         
         try:
             # Получаем активные аккаунты
-            active_accounts = [name for name, data in self.account_manager.accounts.items() 
-                             if data['is_active'] and name not in self.account_manager.blocked_accounts]
+            active_accounts = await self.account_manager.get_active_accounts_list()
             
             if not active_accounts:
                 self.logger.error("Нет активных аккаунтов для рассылки")
@@ -197,8 +196,7 @@ class TelegramBot:
     async def process_message_batch(self):
         """Обработка батча сообщений"""
         # Получаем активные аккаунты
-        active_accounts = [name for name, data in self.account_manager.accounts.items() 
-                          if data['is_active'] and name not in self.account_manager.blocked_accounts]
+        active_accounts = await self.account_manager.get_active_accounts_list()
         
         if not active_accounts:
             self.logger.warning("Нет активных аккаунтов, останавливаем рассылку")
@@ -278,13 +276,12 @@ class TelegramBot:
         
         # Критические ошибки - блокируем аккаунт
         if result.get('should_block_account', False):
-            self.account_manager.mark_account_blocked(account_name, result.get('error', 'unknown'))
+            await self.account_manager.mark_account_blocked(account_name, result.get('error', 'unknown'))
             self.rate_limiter.record_account_blocked(account_name, result.get('error', 'unknown'))
             self.stats['accounts_blocked'] += 1
             
             # Перераспределяем задачи с заблокированного аккаунта
-            active_accounts = [name for name, data in self.account_manager.accounts.items() 
-                             if data['is_active'] and name not in self.account_manager.blocked_accounts]
+            active_accounts = await self.account_manager.get_active_accounts_list()
             self.message_queue.redistribute_tasks(account_name, active_accounts)
         
         # Ошибки с ожиданием

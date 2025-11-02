@@ -262,6 +262,13 @@ class AccountManager:
         
         print("\n" + "="*60)
     
+    def update_message_sent(self, account_name: str):
+        """Обновить счетчик отправленных сообщений для аккаунта"""
+        if account_name in self.accounts:
+            self.accounts[account_name]['messages_sent'] += 1
+            self.accounts[account_name]['last_used'] = asyncio.get_event_loop().time()
+            self.logger.debug(f"Обновлена статистика для {account_name}: {self.accounts[account_name]['messages_sent']} сообщений")
+    
     async def reconnect_account(self, account_name: str, api_id: int, api_hash: str) -> bool:
         """Переподключение аккаунта (отключение + подключение)"""
         if account_name not in self.accounts:

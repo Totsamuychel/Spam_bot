@@ -124,15 +124,31 @@ class TelegramBot:
         self.api_hash = None
         
     def setup_logging(self):
-        """Настройка логирования"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('bot.log', encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
+        """Настройка логирования - только в файл, без вывода в консоль"""
+        # Создаем форматтер для логов
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Настраиваем файловый обработчик
+        file_handler = logging.FileHandler('bot.log', encoding='utf-8')
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.DEBUG)  # В файл записываем все
+        
+        # Настраиваем консольный обработчик только для критических ошибок
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(logging.Formatter('❌ %(message)s'))
+        console_handler.setLevel(logging.ERROR)  # В консоль только ошибки
+        
+        # Настраиваем корневой логгер
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.handlers.clear()  # Очищаем существующие обработчики
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
+        
+        # Отключаем логи telethon в консоли (они будут только в файле)
+        telethon_logger = logging.getLogger('telethon')
+        telethon_logger.setLevel(logging.WARNING)  # Только предупреждения и ошибки
+        
         self.logger = logging.getLogger(__name__)
     
     def load_config(self):
@@ -159,7 +175,7 @@ class TelegramBot:
                         self.api_id = int(env_api_id)
                         self.api_hash = env_api_hash
                         self.logger.info(f"✅ API данные загружены из .env файла: {env_path}")
-                        print(f"🔑 Загружены API данные из .env: API_ID={self.api_id}")
+                        # Убираем вывод API_ID в консоль для безопасности
                         
                         # Создаем config.json для совместимости
                         config = {
@@ -193,6 +209,7 @@ class TelegramBot:
                         str(self.api_id) != "12345" and 
                         self.api_hash != "your_api_hash_here"):
                         self.logger.info("✅ API данные загружены из config.json")
+                        # Не выводим в консоль для чистоты интерфейса
                         return True
             
             # Если ни .env, ни config.json не содержат валидных данных - создаем автоматически
@@ -374,21 +391,25 @@ class TelegramBot:
                         me = await account_data['client'].get_me()
                         account_info = f"{me.first_name} (@{me.username})" if me.username else me.first_name
                         self.logger.info(f"✅ Подключен аккаунт {account_name}: {account_info}")
+                        # Убираем вывод в консоль для чистоты интерфейса
                     except Exception as e:
                         self.logger.warning(f"Не удалось получить информацию об аккаунте {account_name}: {e}")
                         self.logger.info(f"✅ Подключен аккаунт {account_name}")
+                        # Убираем вывод в консоль для чистоты интерфейса
         
         if connected_accounts == 0:
             self.logger.error("Не удалось подключить ни одного аккаунта")
             return False
         
         self.logger.info(f"Всего подключено {connected_accounts} аккаунтов")
+        # Убираем вывод в консоль для чистоты интерфейса
         
         # Инициализируем SmartScheduler с активными аккаунтами
         for account_name in self.account_manager.accounts.keys():
             if self.account_manager.accounts[account_name]['is_active']:
                 await self.scheduler.add_account(account_name)
                 self.logger.info(f"📅 Аккаунт {account_name} добавлен в планировщик")
+                # Не выводим в консоль для чистоты интерфейса
         
         # Загружаем данные сообщений или запускаем сбор канала
         if not self.message_queue.load_messages_data():
@@ -706,13 +727,9 @@ class TelegramBot:
                     self.logger.info("❌ Сбор отменен пользователем")
                     return False
             
-            # Настройки сбора
-            print("\n⚙️ Настройки сбора:")
-            delay_input = await async_input("Задержка между пользователями (сек, по умолчанию 0.1): ")
-            max_users_input = await async_input("Максимум пользователей (по умолчанию 10000): ")
-            
-            delay = float(delay_input.strip()) if delay_input.strip() else 0.1
-            max_users = int(max_users_input.strip()) if max_users_input.strip() else 10000
+            # Настройки сбора - используем значения по умолчанию
+            delay = 3.0  # 3 секунды задержка по умолчанию
+            max_users = 10000  # Максимум пользователей по умолчанию
             
             self.channel_scraper.set_collection_settings(delay, max_users)
             
@@ -982,17 +999,12 @@ class TelegramBot:
                 
                 break
             
-            # Настройки сбора
-            print("\n⚙️ Настройки сбора (можно оставить по умолчанию):")
-            delay_input = await async_input("Задержка между пользователями в секундах (по умолчанию 0.05): ")
-            max_users_input = await async_input("Максимум пользователей (по умолчанию 10000): ")
-            
-            delay = float(delay_input.strip()) if delay_input.strip() else 0.05
-            max_users = int(max_users_input.strip()) if max_users_input.strip() else 10000
+            # Настройки сбора - используем значения по умолчанию
+            delay = 3.0  # 3 секунды задержка по умолчанию
+            max_users = 10000  # Максимум пользователей по умолчанию
             
             print(f"\n🔄 Начинаем сбор участников канала: {channel}")
-            print(f"⚙️ Настройки: задержка={delay}с, макс_пользователей={max_users}")
-            print("⚠️ Используется отдельная сессия для избежания конфликтов")
+            print("⚠️ Используется безопасная задержка 3 секунды между пользователями")
             
             # Выполняем сбор
             success = await self._scrape_with_separate_session(channel, scraper_account, delay)
@@ -1241,6 +1253,7 @@ async def main():
         
         # Интерактивное меню
         while True:
+            print("\n=== By Donut company INC. ===")
             print("\n=== TELEGRAM MULTI-ACCOUNT SENDER ===")
             print("1. Начать рассылку")
             print("2. Показать статистику аккаунтов")
@@ -1281,7 +1294,7 @@ async def main():
                     else:
                         continue
                 
-                print(f"📋 Загружено получателей: {len(bot.message_queue.recipients)}")
+                # Убираем вывод в консоль для чистоты интерфейса
                 
                 # Запрашиваем текст сообщения
                 print("\n📝 Введите текст сообщения для рассылки:")

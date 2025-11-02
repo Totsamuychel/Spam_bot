@@ -9,9 +9,9 @@ class RateLimiter:
     
     def __init__(self):
         # Лимиты Telegram (консервативные значения для безопасности)
-        self.MESSAGES_PER_MINUTE = 20  # Сообщений в минуту
-        self.MESSAGES_PER_HOUR = 200   # Сообщений в час
-        self.NEW_CHATS_PER_DAY = 50    # Новых чатов в день
+        self.MESSAGES_PER_MINUTE = 6  # Сообщений в минуту
+        self.MESSAGES_PER_HOUR = 36  # Сообщений в час
+        self.NEW_CHATS_PER_DAY = 12    # Новых чатов в день
         
         # Отслеживание отправленных сообщений по аккаунтам с ограничением размера
         # Максимум 300 записей на аккаунт (достаточно для отслеживания часа работы)
@@ -110,18 +110,22 @@ class RateLimiter:
     
     async def smart_delay(self, account_name: str, base_delay: float = 1.0):
         """Умная задержка с учетом нагрузки аккаунта"""
-        # Базовая задержка
-        delay = base_delay
+        import random
+        
+        # Базовая задержка с увеличенным диапазоном случайности
+        delay = random.uniform(3.0, 6.0)
         
         # Увеличиваем задержку в зависимости от количества штрафов
         penalty_multiplier = 1 + (self.account_penalties[account_name] * 0.5)
         delay *= penalty_multiplier
         
-        # Случайная вариация для имитации человеческого поведения
+        self.logger.debug(f"Задержка для {account_name}: {delay:.1f}с (штраф: x{penalty_multiplier:.1f})")
+        await asyncio.sleep(delay)
+    
+    async def non_critical_delay(self):
+        """Задержка для некритических операций"""
         import random
-        delay += random.uniform(0.5, 2.0)
-        
-        self.logger.debug(f"Задержка для {account_name}: {delay:.1f}с")
+        delay = random.uniform(0.2, 1.0)
         await asyncio.sleep(delay)
     
     def get_account_limits_info(self, account_name: str) -> Dict:
@@ -142,6 +146,29 @@ class RateLimiter:
             'new_chats_per_day': f"{day_new_chats}/{self.NEW_CHATS_PER_DAY}",
             'penalties': self.account_penalties[account_name],
             'can_send_now': self.can_send_message(account_name)[0]
+        }
+    
+    def get_account_limits_info_russian(self, account_name: str) -> Dict:
+        """Получить информацию о текущих лимитах аккаунта на русском языке"""
+        current_time = time.time()
+        self._cleanup_old_records(account_name, current_time)
+        
+        minute_messages = len([t for t in self.message_history[account_name] 
+                              if current_time - t < 60])
+        hour_messages = len([t for t in self.message_history[account_name] 
+                            if current_time - t < 3600])
+        day_new_chats = len([t for t in self.new_chats_history[account_name] 
+                           if current_time - t < 86400])
+        
+        penalties = self.account_penalties[account_name]
+        can_send = self.can_send_message(account_name)[0]
+        
+        return {
+            'Сообщений в минуту': f"{minute_messages}/{self.MESSAGES_PER_MINUTE}",
+            'Сообщений в час': f"{hour_messages}/{self.MESSAGES_PER_HOUR}",
+            'Новых чатов в день': f"{day_new_chats}/{self.NEW_CHATS_PER_DAY}",
+            'Штрафы': penalties,
+            'Может отправлять сейчас': "✅ Да" if can_send else "❌ Нет"
         }
     
     def reset_account_penalties(self, account_name: str):

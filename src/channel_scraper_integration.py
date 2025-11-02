@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Optional
 from telethon import TelegramClient
+
 from telethon.errors import (
     FloodWaitError, 
     ChannelPrivateError, 
@@ -216,6 +217,23 @@ class TelegramChannelScraper:
                 except:
                     pass
     
+
+    
+    def get_stats(self) -> Dict:
+        """Получить статистику последнего сбора"""
+        return {
+            'total_users': len(self.users_data),
+            'users_with_username': len([u for u in self.users_data if u.get('username')]),
+            'users_with_phone': len([u for u in self.users_data if u.get('phone')]),
+            'users_with_display_name': len([u for u in self.users_data if u.get('display_name')])
+        }
+    
+    def set_collection_settings(self, delay: float = 0.1, max_users: int = 10000):
+        """Настроить параметры сбора"""
+        self.DELAY_BETWEEN_USERS = delay
+        self.MAX_USERS_PER_CHANNEL = max_users
+        self.logger.info(f"⚙️ Настройки сбора: задержка={delay}с, макс_пользователей={max_users}")
+    
     @staticmethod
     def _extract_channel_username(channel_input: str) -> str:
         """Извлечь username канала из различных форматов ввода"""
@@ -223,11 +241,8 @@ class TelegramChannelScraper:
         
         # Если это ссылка t.me
         if 't.me/' in channel_input:
-            # Извлекаем часть после t.me/
             username = channel_input.split('t.me/')[-1]
-            # Убираем возможные параметры после ?
             username = username.split('?')[0]
-            # Убираем слэш в конце если есть
             username = username.rstrip('/')
             return username
         
@@ -242,7 +257,6 @@ class TelegramChannelScraper:
         if channel_input.startswith('@'):
             return channel_input[1:]
         
-        # Если это просто username
         return channel_input
     
     @staticmethod
@@ -264,21 +278,6 @@ class TelegramChannelScraper:
         
         return None
     
-    def get_stats(self) -> Dict:
-        """Получить статистику последнего сбора"""
-        return {
-            'total_users': len(self.users_data),
-            'users_with_username': len([u for u in self.users_data if u.get('username')]),
-            'users_with_phone': len([u for u in self.users_data if u.get('phone')]),
-            'users_with_display_name': len([u for u in self.users_data if u.get('display_name')])
-        }
-    
-    def set_collection_settings(self, delay: float = 0.1, max_users: int = 10000):
-        """Настроить параметры сбора"""
-        self.DELAY_BETWEEN_USERS = delay
-        self.MAX_USERS_PER_CHANNEL = max_users
-        self.logger.info(f"⚙️ Настройки сбора: задержка={delay}с, макс_пользователей={max_users}")
-    
     @staticmethod
     def validate_channel_input(channel_input: str) -> bool:
         """Проверить корректность ввода канала"""
@@ -287,12 +286,12 @@ class TelegramChannelScraper:
         
         channel_input = channel_input.strip()
         
-        # Проверяем различные форматы
         valid_patterns = [
             't.me/' in channel_input,
             'telegram.me/' in channel_input,
             channel_input.startswith('@'),
-            channel_input.replace('_', '').replace('-', '').isalnum()  # Простой username
+            channel_input.replace('_', '').replace('-', '').isalnum()
         ]
         
         return any(valid_patterns)
+    

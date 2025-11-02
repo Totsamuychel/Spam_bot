@@ -7,7 +7,10 @@ from telethon.errors import (
     ChatWriteForbiddenError, UserBannedInChannelError, SlowModeWaitError,
     PeerFloodError, AuthKeyUnregisteredError
 )
-from message_queue import MessageTask
+try:
+    from .message_queue import MessageTask
+except ImportError:
+    from message_queue import MessageTask
 
 class MessageSender:
     """Основная логика отправки сообщений через Telegram"""

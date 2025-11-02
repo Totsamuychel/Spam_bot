@@ -195,6 +195,73 @@ class AccountManager:
             
         return stats
     
+    def print_account_stats_russian(self):
+        """Красивый вывод статистики аккаунтов на русском языке"""
+        stats = self.get_account_stats()
+        
+        print("\n" + "="*60)
+        print("📊 СТАТИСТИКА АККАУНТОВ")
+        print("="*60)
+        
+        # Общая статистика
+        print(f"📱 Всего аккаунтов: {stats['total_accounts']}")
+        print(f"✅ Активных: {stats['active_accounts']}")
+        print(f"❌ Заблокированных: {stats['blocked_accounts']}")
+        print(f"⚠️ Неактивных: {stats['total_accounts'] - stats['active_accounts']}")
+        
+        if stats['total_accounts'] > 0:
+            success_rate = (stats['active_accounts'] / stats['total_accounts']) * 100
+            print(f"📈 Процент активных: {success_rate:.1f}%")
+        
+        print("\n" + "-"*60)
+        print("📋 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО АККАУНТАМ:")
+        print("-"*60)
+        
+        if not stats['accounts_detail']:
+            print("📭 Нет загруженных аккаунтов")
+            return
+        
+        # Детальная информация по каждому аккаунту
+        for account_name, details in stats['accounts_detail'].items():
+            # Определяем иконку статуса
+            if details['is_blocked']:
+                status_icon = "🚫"
+                status_text = "ЗАБЛОКИРОВАН"
+            elif details['status'] == 'connected':
+                status_icon = "✅"
+                status_text = "ПОДКЛЮЧЕН"
+            elif details['status'] == 'disconnected':
+                status_icon = "⚠️"
+                status_text = "ОТКЛЮЧЕН"
+            elif details['status'] == 'reconnecting':
+                status_icon = "🔄"
+                status_text = "ПЕРЕПОДКЛЮЧЕНИЕ"
+            else:
+                status_icon = "❓"
+                status_text = details['status'].upper()
+            
+            print(f"\n{status_icon} {account_name}")
+            print(f"   📞 Номер: {account_name}")
+            print(f"   🔗 Статус: {status_text}")
+            print(f"   📤 Отправлено сообщений: {details['messages_sent']}")
+            
+            # Форматируем время последнего использования
+            if details['last_used']:
+                try:
+                    from datetime import datetime
+                    if isinstance(details['last_used'], (int, float)):
+                        last_used_dt = datetime.fromtimestamp(details['last_used'])
+                        last_used_str = last_used_dt.strftime("%d.%m.%Y %H:%M:%S")
+                    else:
+                        last_used_str = str(details['last_used'])
+                    print(f"   ⏰ Последнее использование: {last_used_str}")
+                except:
+                    print(f"   ⏰ Последнее использование: {details['last_used']}")
+            else:
+                print(f"   ⏰ Последнее использование: Никогда")
+        
+        print("\n" + "="*60)
+    
     async def reconnect_account(self, account_name: str, api_id: int, api_hash: str) -> bool:
         """Переподключение аккаунта (отключение + подключение)"""
         if account_name not in self.accounts:

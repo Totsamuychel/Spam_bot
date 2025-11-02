@@ -246,17 +246,21 @@ class AccountManager:
             print(f"   📤 Отправлено сообщений: {details['messages_sent']}")
             
             # Форматируем время последнего использования
-            if details['last_used']:
+            if details['last_used'] and details['last_used'] > 0:
                 try:
                     from datetime import datetime
                     if isinstance(details['last_used'], (int, float)):
-                        last_used_dt = datetime.fromtimestamp(details['last_used'])
-                        last_used_str = last_used_dt.strftime("%d.%m.%Y %H:%M:%S")
+                        # Проверяем что timestamp разумный (после 2020 года)
+                        if details['last_used'] > 1577836800:  # 1 января 2020
+                            last_used_dt = datetime.fromtimestamp(details['last_used'])
+                            last_used_str = last_used_dt.strftime("%d.%m.%Y %H:%M:%S")
+                        else:
+                            last_used_str = "Некорректное время"
                     else:
                         last_used_str = str(details['last_used'])
                     print(f"   ⏰ Последнее использование: {last_used_str}")
-                except:
-                    print(f"   ⏰ Последнее использование: {details['last_used']}")
+                except Exception as e:
+                    print(f"   ⏰ Последнее использование: Ошибка форматирования ({details['last_used']})")
             else:
                 print(f"   ⏰ Последнее использование: Никогда")
         
@@ -265,8 +269,9 @@ class AccountManager:
     def update_message_sent(self, account_name: str):
         """Обновить счетчик отправленных сообщений для аккаунта"""
         if account_name in self.accounts:
+            import time
             self.accounts[account_name]['messages_sent'] += 1
-            self.accounts[account_name]['last_used'] = asyncio.get_event_loop().time()
+            self.accounts[account_name]['last_used'] = time.time()  # Используем реальный unix timestamp
             self.logger.debug(f"Обновлена статистика для {account_name}: {self.accounts[account_name]['messages_sent']} сообщений")
     
     async def reconnect_account(self, account_name: str, api_id: int, api_hash: str) -> bool:

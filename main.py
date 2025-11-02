@@ -11,6 +11,13 @@ import os
 from typing import Dict, List
 import json
 
+# Импорт dotenv для загрузки переменных окружения
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+
 # Импорт aioconsole для неблокирующего ввода
 try:
     import aioconsole
@@ -129,8 +136,51 @@ class TelegramBot:
         self.logger = logging.getLogger(__name__)
     
     def load_config(self):
-        """Загрузка конфигурации с автоматическим созданием при первом запуске"""
+        """Загрузка конфигурации с приоритетом .env файла"""
         try:
+            # Определяем путь к .env файлу (рядом с исполняемым файлом)
+            if getattr(sys, 'frozen', False):
+                # Если запущено как exe
+                app_dir = os.path.dirname(sys.executable)
+            else:
+                # Если запущено как скрипт
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            env_path = os.path.join(app_dir, '.env')
+            
+            # Сначала пытаемся загрузить из .env файла
+            if DOTENV_AVAILABLE and os.path.exists(env_path):
+                load_dotenv(env_path)
+                env_api_id = os.getenv('API_ID')
+                env_api_hash = os.getenv('API_HASH')
+                
+                if env_api_id and env_api_hash:
+                    try:
+                        self.api_id = int(env_api_id)
+                        self.api_hash = env_api_hash
+                        self.logger.info(f"✅ API данные загружены из .env файла: {env_path}")
+                        print(f"🔑 Загружены API данные из .env: API_ID={self.api_id}")
+                        
+                        # Создаем config.json для совместимости
+                        config = {
+                            "api_id": self.api_id,
+                            "api_hash": self.api_hash,
+                            "source": "env_file",
+                            "created_at": "auto-generated from .env"
+                        }
+                        
+                        with open('config.json', 'w', encoding='utf-8') as f:
+                            json.dump(config, f, indent=2, ensure_ascii=False)
+                        
+                        return True
+                    except ValueError:
+                        self.logger.warning("⚠️ Неверный формат API_ID в .env файле")
+            else:
+                if DOTENV_AVAILABLE:
+                    self.logger.info(f"⚠️ .env файл не найден по пути: {env_path}")
+                else:
+                    self.logger.info("⚠️ python-dotenv не установлен")
+            
             # Проверяем существует ли config.json
             if os.path.exists('config.json'):
                 with open('config.json', 'r', encoding='utf-8') as f:
@@ -142,17 +192,80 @@ class TelegramBot:
                     if (self.api_id and self.api_hash and 
                         str(self.api_id) != "12345" and 
                         self.api_hash != "your_api_hash_here"):
+                        self.logger.info("✅ API данные загружены из config.json")
                         return True
             
-            # Если конфига нет или данные не заполнены - создаем интерактивно
-            return self.create_config_interactive()
+            # Если ни .env, ни config.json не содержат валидных данных - создаем автоматически
+            return self.create_config_automatically()
                 
         except Exception as e:
             self.logger.error(f"Ошибка загрузки конфигурации: {e}")
+            return self.create_config_automatically()
+    
+    def create_config_automatically(self):
+        """Автоматическое создание конфигурации с предустановленными API данными"""
+        try:
+            # Пытаемся загрузить реальные API данные из отдельного файла
+            try:
+                from api_config import REAL_API_ID, REAL_API_HASH
+                api_id = REAL_API_ID
+                api_hash = REAL_API_HASH
+                self.logger.info("🔑 Используются реальные API данные из api_config.py")
+            except ImportError:
+                # Если файла нет, используем placeholder данные
+                api_id = 12345  # Замените на ваш API ID
+                api_hash = "your_api_hash_here"  # Замените на ваш API Hash
+                self.logger.warning("⚠️ api_config.py не найден, используются placeholder данные")
+            
+            self.logger.info("🔧 Создание конфигурации с предустановленными API данными...")
+            
+            # Определяем путь для .env файла
+            if getattr(sys, 'frozen', False):
+                # Если запущено как exe
+                app_dir = os.path.dirname(sys.executable)
+            else:
+                # Если запущено как скрипт
+                app_dir = os.path.dirname(os.path.abspath(__file__))
+            
+            env_path = os.path.join(app_dir, '.env')
+            
+            # Создаем .env файл
+            env_content = f"API_ID={api_id}\nAPI_HASH={api_hash}\n"
+            
+            with open(env_path, 'w', encoding='utf-8') as f:
+                f.write(env_content)
+            
+            self.logger.info(f"✅ .env файл создан: {env_path}")
+            
+            # Создаем config.json для совместимости
+            config = {
+                "api_id": api_id,
+                "api_hash": api_hash,
+                "source": "auto_created",
+                "created_at": "auto-generated with preset values"
+            }
+            
+            config_path = os.path.join(app_dir, 'config.json')
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"✅ config.json создан: {config_path}")
+            
+            # Устанавливаем значения
+            self.api_id = api_id
+            self.api_hash = api_hash
+            
+            print("🔑 Конфигурация создана автоматически с предустановленными API данными")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка автоматического создания конфигурации: {e}")
+            # Если автоматическое создание не удалось, переходим к интерактивному
             return self.create_config_interactive()
     
     def create_config_interactive(self):
-        """Интерактивное создание конфигурации"""
+        """Интерактивное создание конфигурации (резервный вариант)"""
         print("\n" + "="*60)
         print("🔧 ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА")
         print("="*60)
@@ -515,8 +628,8 @@ class TelegramBot:
         # Выводим статистику
         await self.print_final_stats()
         
-        # Отключаем аккаунты
-        await self.account_manager.disconnect_all()
+        # НЕ отключаем аккаунты после рассылки - оставляем их подключенными для следующих рассылок
+        self.logger.info("🔗 Аккаунты остаются подключенными для следующих рассылок")
     
     async def print_final_stats(self):
         """Вывод финальной статистики"""

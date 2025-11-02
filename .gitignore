@@ -198,6 +198,7 @@ accounts.txt
 phone_numbers.txt
 api_keys.txt
 tokens.txt
+api_config.py
 
 # OS generated files
 .DS_Store

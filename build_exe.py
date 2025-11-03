@@ -11,7 +11,7 @@ import shutil
 def build_exe():
     """Сборка exe файла с PyInstaller"""
     
-    print("🔨 Начинаем сборку exe файла...")
+    print("🔨 Начинаем сборку TelegramSender v2.4...")
     
     # Проверяем что PyInstaller установлен
     try:
@@ -22,12 +22,33 @@ def build_exe():
         subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
         print("✅ PyInstaller установлен")
     
-    # Проверяем что .env файл существует
-    if not os.path.exists('.env'):
-        print("❌ .env файл не найден!")
+    # Проверяем важные файлы
+    required_files = [
+        '.env',
+        'main.py', 
+        'api_config.py',
+        'config.json',
+        'src/member_collector.py',
+        'src/account_manager.py',
+        'src/auth_manager.py',
+        'src/message_queue.py',
+        'src/rate_limiter.py',
+        'src/sender.py',
+        'src/smart_scheduler.py'
+    ]
+    
+    missing_files = []
+    for file_path in required_files:
+        if not os.path.exists(file_path):
+            missing_files.append(file_path)
+        else:
+            print(f"✅ {file_path}")
+    
+    if missing_files:
+        print(f"❌ Отсутствуют важные файлы: {missing_files}")
         return False
     
-    print("✅ .env файл найден")
+    print("✅ Все необходимые файлы найдены")
     
     # Создаем spec файл для PyInstaller
     spec_content = '''
@@ -42,9 +63,17 @@ a = Analysis(
     datas=[
         ('.env', '.'),
         ('src', 'src'),
+        ('data', 'data'),
+        ('api_config.py', '.'),
+        ('config.json', '.'),
+        ('message.txt', '.'),
     ],
     hiddenimports=[
         'telethon',
+        'telethon.client',
+        'telethon.tl',
+        'telethon.tl.types',
+        'telethon.errors',
         'aioconsole', 
         'dotenv',
         'asyncio',
@@ -53,12 +82,31 @@ a = Analysis(
         'time',
         'random',
         'os',
-        'configparser'
+        'sys',
+        'pathlib',
+        'configparser',
+        're',
+        'typing',
+        'src.account_manager',
+        'src.auth_manager',
+        'src.member_collector',
+        'src.message_queue',
+        'src.rate_limiter',
+        'src.sender',
+        'src.smart_scheduler',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter',
+        'matplotlib',
+        'numpy',
+        'pandas',
+        'scipy',
+        'PIL',
+        'cv2',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -74,7 +122,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='telegram_sender',
+    name='TelegramSender_v2.4',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -91,10 +139,10 @@ exe = EXE(
 '''
     
     # Записываем spec файл
-    with open('telegram_sender.spec', 'w', encoding='utf-8') as f:
+    with open('TelegramSender_v2.4.spec', 'w', encoding='utf-8') as f:
         f.write(spec_content)
     
-    print("✅ Spec файл создан")
+    print("✅ Spec файл создан: TelegramSender_v2.4.spec")
     
     # Запускаем PyInstaller
     try:
@@ -102,13 +150,13 @@ exe = EXE(
         result = subprocess.run([
             sys.executable, "-m", "PyInstaller", 
             "--clean",
-            "telegram_sender.spec"
+            "TelegramSender_v2.4.spec"
         ], check=True, capture_output=True, text=True)
         
         print("✅ Сборка завершена успешно!")
         
         # Проверяем что exe файл создан
-        exe_path = os.path.join("dist", "telegram_sender.exe")
+        exe_path = os.path.join("dist", "TelegramSender_v2.4.exe")
         if os.path.exists(exe_path):
             file_size = os.path.getsize(exe_path) / (1024 * 1024)  # MB
             print(f"📦 Exe файл создан: {exe_path}")
@@ -134,8 +182,8 @@ def clean_build():
     """Очистка временных файлов сборки"""
     print("🧹 Очистка временных файлов...")
     
-    dirs_to_remove = ['build', '__pycache__']
-    files_to_remove = ['telegram_sender.spec']
+    dirs_to_remove = ['build', '__pycache__', 'src/__pycache__']
+    files_to_remove = ['TelegramSender_v2.4.spec']
     
     for dir_name in dirs_to_remove:
         if os.path.exists(dir_name):

@@ -12,7 +12,7 @@ from .rate_limiter import RateLimiter
 from .message_queue import MessageQueue, MessageTask
 from .sender import MessageSender
 from .auth_manager import AuthManager
-from .channel_scraper_integration import TelegramChannelScraper
+from .member_collector import MemberCollector
 
 __all__ = [
     'AccountManager',
@@ -21,5 +21,5 @@ __all__ = [
     'MessageTask',
     'MessageSender',
     'AuthManager',
-    'TelegramChannelScraper'
+    'MemberCollector'
 ]

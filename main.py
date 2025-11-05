@@ -174,9 +174,7 @@ class TelegramBot:
                     try:
                         self.api_id = int(env_api_id)
                         self.api_hash = env_api_hash
-                        self.logger.info(f"✅ API данные загружены из .env файла: {env_path}")
-                        # Убираем вывод API_ID в консоль для безопасности
-                        
+                                                
                         # Создаем config.json для совместимости
                         config = {
                             "api_id": self.api_id,
@@ -190,12 +188,7 @@ class TelegramBot:
                         
                         return True
                     except ValueError:
-                        self.logger.warning("⚠️ Неверный формат API_ID в .env файле")
-            else:
-                if DOTENV_AVAILABLE:
-                    self.logger.info(f"⚠️ .env файл не найден по пути: {env_path}")
-                else:
-                    self.logger.info("⚠️ python-dotenv не установлен")
+                        self.logger.warning("Неверный формат API_ID в .env файле")
             
             # Проверяем существует ли config.json
             if os.path.exists('config.json'):
@@ -208,8 +201,6 @@ class TelegramBot:
                     if (self.api_id and self.api_hash and 
                         str(self.api_id) != "12345" and 
                         self.api_hash != "your_api_hash_here"):
-                        self.logger.info("✅ API данные загружены из config.json")
-                        # Не выводим в консоль для чистоты интерфейса
                         return True
             
             # Если ни .env, ни config.json не содержат валидных данных - создаем автоматически
@@ -227,14 +218,14 @@ class TelegramBot:
                 from api_config import REAL_API_ID, REAL_API_HASH
                 api_id = REAL_API_ID
                 api_hash = REAL_API_HASH
-                self.logger.info("🔑 Используются реальные API данные из api_config.py")
+                self.logger.info("Используются реальные API данные из api_config.py")
             except ImportError:
                 # Если файла нет, используем placeholder данные
                 api_id = 12345  # Замените на ваш API ID
                 api_hash = "your_api_hash_here"  # Замените на ваш API Hash
-                self.logger.warning("⚠️ api_config.py не найден, используются placeholder данные")
+                self.logger.warning("api_config.py не найден, используются placeholder данные")
             
-            self.logger.info("🔧 Создание конфигурации с предустановленными API данными...")
+            self.logger.info("Создание конфигурации с предустановленными API данными")
             
             # Определяем путь для .env файла
             if getattr(sys, 'frozen', False):
@@ -252,7 +243,7 @@ class TelegramBot:
             with open(env_path, 'w', encoding='utf-8') as f:
                 f.write(env_content)
             
-            self.logger.info(f"✅ .env файл создан: {env_path}")
+            self.logger.info(f".env файл создан: {env_path}")
             
             # Создаем config.json для совместимости
             config = {
@@ -266,18 +257,16 @@ class TelegramBot:
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
             
-            self.logger.info(f"✅ config.json создан: {config_path}")
+            self.logger.info(f"config.json создан: {config_path}")
             
             # Устанавливаем значения
             self.api_id = api_id
             self.api_hash = api_hash
             
-            print("🔑 Конфигурация создана автоматически с предустановленными API данными")
-            
             return True
             
         except Exception as e:
-            self.logger.error(f"❌ Ошибка автоматического создания конфигурации: {e}")
+            self.logger.error(f"Ошибка автоматического создания конфигурации: {e}")
             # Если автоматическое создание не удалось, переходим к интерактивному
             return self.create_config_interactive()
     
@@ -345,7 +334,7 @@ class TelegramBot:
     
     async def initialize(self):
         """Инициализация всех компонентов"""
-        self.logger.info("Инициализация бота...")
+        self.logger.info("Инициализация бота")
         
         # Загружаем конфигурацию
         if not self.load_config():
@@ -357,26 +346,28 @@ class TelegramBot:
         # Инициализируем сборщик участников
         self.member_collector = MemberCollector(self.api_id, self.api_hash)
         
+        # Очищаем поврежденные сессии перед загрузкой
+        cleaned_sessions = self.account_manager.cleanup_corrupted_sessions()
+        if cleaned_sessions > 0:
+            print(f"🧹 Автоматически очищено {cleaned_sessions} поврежденных session файлов")
+        
         # Загружаем аккаунты
         if not self.account_manager.load_accounts():
-            print("\n⚠️ Не найдено аккаунтов для рассылки!")
-            print("Необходимо добавить хотя бы один аккаунт.")
+            print("\n=== By Donut company INC. ===")
+            print("Добро пожаловать в TELEGRAM MULTY\n")
+            print("Давайте добавим ваш первый аккаунт для рассылки!")
             
-            add_account = await async_input("Хотите добавить аккаунт сейчас? (y/n): ")
-            if add_account.strip().lower() == 'y':
-                success = await self.auth_manager.add_new_account()
-                if success:
-                    # Перезагружаем аккаунты
-                    if not self.account_manager.load_accounts():
-                        self.logger.error("Не удалось загрузить аккаунты после добавления")
-                        return False
-                    # Синхронизируем scheduler после добавления аккаунта
-                    await self.sync_scheduler_with_accounts()
-                else:
-                    self.logger.error("Не удалось добавить аккаунт")
+            await async_input("Нажмите Enter чтобы добавить аккаунт ")
+            success = await self.auth_manager.add_new_account()
+            if success:
+                # Перезагружаем аккаунты
+                if not self.account_manager.load_accounts():
+                    self.logger.error("Не удалось загрузить аккаунты после добавления")
                     return False
+                # Синхронизируем scheduler после добавления аккаунта
+                await self.sync_scheduler_with_accounts()
             else:
-                self.logger.error("Нет аккаунтов для работы")
+                self.logger.error("Не удалось добавить аккаунт")
                 return False
         
         # Подключаем аккаунты
@@ -390,47 +381,32 @@ class TelegramBot:
                     try:
                         me = await account_data['client'].get_me()
                         account_info = f"{me.first_name} (@{me.username})" if me.username else me.first_name
-                        self.logger.info(f"✅ Подключен аккаунт {account_name}: {account_info}")
-                        # Убираем вывод в консоль для чистоты интерфейса
+                        self.logger.info(f"Подключен аккаунт {account_name}: {account_info}")
                     except Exception as e:
                         self.logger.warning(f"Не удалось получить информацию об аккаунте {account_name}: {e}")
-                        self.logger.info(f"✅ Подключен аккаунт {account_name}")
-                        # Убираем вывод в консоль для чистоты интерфейса
+                        self.logger.info(f"Подключен аккаунт {account_name}")
         
         if connected_accounts == 0:
             self.logger.error("Не удалось подключить ни одного аккаунта")
             return False
         
         self.logger.info(f"Всего подключено {connected_accounts} аккаунтов")
-        # Убираем вывод в консоль для чистоты интерфейса
         
         # Инициализируем SmartScheduler с активными аккаунтами
         for account_name in self.account_manager.accounts.keys():
             if self.account_manager.accounts[account_name]['is_active']:
                 await self.scheduler.add_account(account_name)
-                self.logger.info(f"📅 Аккаунт {account_name} добавлен в планировщик")
-                # Не выводим в консоль для чистоты интерфейса
+                self.logger.info(f"Аккаунт {account_name} добавлен в планировщик")
         
         # Загружаем данные сообщений или запускаем сбор канала
         if not self.message_queue.load_messages_data():
-            self.logger.info("📭 Файл с данными получателей не найден")
+            self.logger.info("Файл с данными получателей не найден")
             print("\n" + "="*60)
-            print("📭 ДАННЫЕ ПОЛУЧАТЕЛЕЙ НЕ НАЙДЕНЫ")
+            print("ДАННЫЕ ПОЛУЧАТЕЛЕЙ НЕ НАЙДЕНЫ")
             print("="*60)
             print("Для начала работы необходимо собрать список получателей.")
-            print("Сейчас будет запущен сбор участников Telegram канала.")
+            print("Используйте пункт меню '4. Собрать участников из Telegram каналов'")
             print("="*60)
-            
-            # Автоматически запускаем сбор канала
-            success = await self.auto_collect_channel_participants()
-            if not success:
-                self.logger.error("Не удалось собрать данные получателей")
-                return False
-            
-            # Пытаемся загрузить данные снова
-            if not self.message_queue.load_messages_data():
-                self.logger.error("Не удалось загрузить собранные данные")
-                return False
         
         return True
     
@@ -826,12 +802,13 @@ class TelegramBot:
                     
                 elif choice == '2':
                     # Способ 2: По названию, username или ссылке
-                    print("\n🔍 СБОР ПО НАЗВАНИЮ, USERNAME ИЛИ ССЫЛКЕ")
+                    print("\n🔍 Сбор людей по названию ТГК, USERNAME ИЛИ ССЫЛКЕ")
+                    print("-" * 50)
                     print("Поддерживаемые форматы ввода:")
-                    print("• Название: Бензин в Самарканде")
-                    print("• Username: @benzin_samarkand")
-                    print("• Ссылка: https://t.me/benzin_samarkand")
-                    print("• Ссылка: t.me/benzin_samarkand")
+                    print("• Название: TestMarket")
+                    print("• Username: @TestMarkett")
+                    print("• Ссылка: https://t.me/TestMarkett")
+                    print("• Ссылка: t.me/TestMarkett")
                     
                     while True:
                         user_input = await async_input("\n📝 Введите название, юзернейм (@имя) или ссылку группы/канала: ")
@@ -898,14 +875,15 @@ class TelegramBot:
     async def account_management_menu(self):
         """Подменю управления аккаунтами"""
         while True:
-            print("\n🔐 УПРАВЛЕНИЕ АККАУНТАМИ")
+            print("\n🔐 НАСТРОЙКИ")
             print("="*50)
             print("1. Показать лимиты аккаунтов")
-            print("2. Тест подключения аккаунтов")
-            print("3. Добавить/проверить аккаунты")
-            print("4. 🧹 Очистить память и сбросить лимиты")
-            print("5. 🔄 Проверить и переподключить аккаунты")
-            print("6. 📅 Синхронизировать планировщик")
+            print("2. Очистить память и сбросить лимиты")
+            print("3. Проверить и переподключить аккаунты")
+            print("4. Очистить поврежденные сессии")
+            print("5. Синхронизировать планировщик")
+            print("6. Поменять TG API ID, HASH")
+            print("7. Переименовать название сессий")
             print("0. Вернуться в главное меню")
             
             choice = await async_input("Выберите действие: ")
@@ -956,62 +934,6 @@ class TelegramBot:
                 print("\n" + "="*60)
                 
             elif choice == '2':
-                # Тест подключения аккаунтов
-                print("\n🔍 ТЕСТ ПОДКЛЮЧЕНИЯ АККАУНТОВ")
-                print("="*60)
-                
-                if not self.account_manager.accounts:
-                    print("📭 Нет загруженных аккаунтов")
-                else:
-                    print("🔄 Тестирование подключений...")
-                    print("-"*60)
-                    
-                    total_accounts = len(self.account_manager.accounts)
-                    working_accounts = 0
-                    
-                    for account_name, data in self.account_manager.accounts.items():
-                        if data['client'] and data['is_active']:
-                            result = await self.sender.test_account_connection(data['client'], account_name)
-                            if result['success']:
-                                account_info = result['account_info']
-                                username = f"@{account_info['username']}" if account_info['username'] else "Нет username"
-                                print(f"\n✅ {account_name}")
-                                print(f"   👤 Имя: {account_info['first_name']}")
-                                print(f"   🏷️ Username: {username}")
-                                print(f"   🆔 ID: {account_info['id']}")
-                                print(f"   📞 Телефон: +{account_info['phone']}")
-                                working_accounts += 1
-                            else:
-                                print(f"\n❌ {account_name}")
-                                print(f"   🚫 Ошибка: {result.get('error', 'Неизвестная ошибка')}")
-                        else:
-                            print(f"\n⚠️ {account_name}")
-                            print(f"   🔌 Статус: Не подключен или неактивен")
-                    
-                    print("\n" + "-"*60)
-                    print(f"📊 ИТОГО: {working_accounts}/{total_accounts} аккаунтов работают")
-                    
-                    if working_accounts == total_accounts:
-                        print("🎉 Все аккаунты работают отлично!")
-                    elif working_accounts > 0:
-                        print(f"⚠️ {total_accounts - working_accounts} аккаунтов требуют внимания")
-                    else:
-                        print("🚨 Ни один аккаунт не работает!")
-                    
-                print("\n" + "="*60)
-                
-            elif choice == '3':
-                # Добавить/проверить аккаунты
-                await self.auth_manager.interactive_account_management()
-                # Перезагружаем аккаунты после изменений
-                if not self.account_manager.load_accounts():
-                    self.logger.error("❌ Не удалось перезагрузить аккаунты после изменений")
-                    print("❌ Ошибка перезагрузки аккаунтов")
-                else:
-                    # Синхронизируем scheduler с обновленными аккаунтами
-                    await self.sync_scheduler_with_accounts()
-                        
-            elif choice == '4':
                 # Очистить память и сбросить лимиты
                 print("\n🧹 ОЧИСТКА ПАМЯТИ")
                 print("="*30)
@@ -1041,7 +963,7 @@ class TelegramBot:
                     new_memory_info = self.rate_limiter.get_memory_usage_info()
                     print(f"Новое использование: {new_memory_info['memory_usage_estimate_mb']:.2f} MB")
                 
-            elif choice == '5':
+            elif choice == '3':
                 # Проверить и переподключить аккаунты
                 print("\n🔄 ПРОВЕРКА И ПЕРЕПОДКЛЮЧЕНИЕ АККАУНТОВ")
                 print("="*50)
@@ -1068,7 +990,29 @@ class TelegramBot:
                 else:
                     print("✅ Все аккаунты работают нормально!")
             
-            elif choice == '6':
+            elif choice == '4':
+                # Очистить поврежденные сессии
+                print("\n🗑️ ОЧИСТКА ПОВРЕЖДЕННЫХ СЕССИЙ")
+                print("="*50)
+                
+                print("🔍 Проверяем session файлы на повреждения...")
+                cleaned_count = self.account_manager.cleanup_corrupted_sessions()
+                
+                if cleaned_count > 0:
+                    print(f"🧹 Удалено {cleaned_count} поврежденных session файлов")
+                    print("💡 Для этих аккаунтов потребуется повторная авторизация")
+                    
+                    # Перезагружаем аккаунты после очистки
+                    print("🔄 Перезагружаем список аккаунтов...")
+                    if self.account_manager.load_accounts():
+                        print("✅ Список аккаунтов обновлен")
+                        await self.sync_scheduler_with_accounts()
+                    else:
+                        print("⚠️ После очистки не осталось валидных аккаунтов")
+                else:
+                    print("✅ Поврежденных session файлов не найдено")
+            
+            elif choice == '5':
                 # Принудительная синхронизация планировщика
                 print("\n📅 СИНХРОНИЗАЦИЯ ПЛАНИРОВЩИКА")
                 print("="*50)
@@ -1088,6 +1032,146 @@ class TelegramBot:
                     print("🎉 Планировщик полностью синхронизирован!")
                 else:
                     print("⚠️ Обнаружено расхождение, проверьте состояние аккаунтов")
+            
+            elif choice == '6':
+                # Поменять TG API ID, HASH
+                print("\n🔑 ИЗМЕНЕНИЕ API ДАННЫХ")
+                print("="*50)
+                print("Текущие API данные:")
+                print(f"   API ID: {self.api_id}")
+                print(f"   API Hash: {self.api_hash[:10]}..." if self.api_hash else "   API Hash: Не установлен")
+                print()
+                
+                confirm = await async_input("Изменить API данные? (y/n): ")
+                if confirm.strip().lower() == 'y':
+                    # Запрашиваем новый API ID
+                    while True:
+                        api_id_input = await async_input("\n🔑 Введите новый API ID: ")
+                        api_id_input = api_id_input.strip()
+                        if api_id_input.isdigit():
+                            new_api_id = int(api_id_input)
+                            break
+                        else:
+                            print("❌ API ID должен быть числом")
+                    
+                    # Запрашиваем новый API Hash
+                    new_api_hash = await async_input("🔐 Введите новый API Hash: ")
+                    new_api_hash = new_api_hash.strip()
+                    
+                    if not new_api_hash or len(new_api_hash) < 32:
+                        print("❌ API Hash слишком короткий или пустой")
+                        continue
+                    
+                    # Обновляем config.json
+                    try:
+                        config = {
+                            "api_id": new_api_id,
+                            "api_hash": new_api_hash,
+                            "updated_at": "manually updated"
+                        }
+                        
+                        with open('config.json', 'w', encoding='utf-8') as f:
+                            json.dump(config, f, indent=2, ensure_ascii=False)
+                        
+                        # Обновляем .env если он существует
+                        if getattr(sys, 'frozen', False):
+                            app_dir = os.path.dirname(sys.executable)
+                        else:
+                            app_dir = os.path.dirname(os.path.abspath(__file__))
+                        
+                        env_path = os.path.join(app_dir, '.env')
+                        if os.path.exists(env_path):
+                            with open(env_path, 'w', encoding='utf-8') as f:
+                                f.write(f"API_ID={new_api_id}\nAPI_HASH={new_api_hash}\n")
+                            print("✅ .env файл обновлен")
+                        
+                        # Обновляем текущие значения
+                        self.api_id = new_api_id
+                        self.api_hash = new_api_hash
+                        
+                        print("✅ API данные успешно обновлены!")
+                        print("⚠️ Потребуется переподключение всех аккаунтов")
+                        
+                        # Предлагаем переподключить аккаунты
+                        reconnect = await async_input("\nПереподключить все аккаунты сейчас? (y/n): ")
+                        if reconnect.strip().lower() == 'y':
+                            # Отключаем все аккаунты
+                            await self.account_manager.disconnect_all()
+                            
+                            # Переподключаем с новыми API данными
+                            reconnected = 0
+                            for account_name in list(self.account_manager.accounts.keys()):
+                                print(f"🔄 Переподключение {account_name}...", end=" ")
+                                if await self.account_manager.connect_account(account_name, new_api_id, new_api_hash):
+                                    reconnected += 1
+                                    print("✅")
+                                else:
+                                    print("❌")
+                            
+                            print(f"\n✅ Переподключено {reconnected} аккаунтов")
+                            await self.sync_scheduler_with_accounts()
+                        
+                    except Exception as e:
+                        print(f"❌ Ошибка обновления API данных: {e}")
+                        self.logger.error(f"Ошибка обновления API данных: {e}")
+            
+            elif choice == '7':
+                # Переименовать название сессий
+                print("\n✏️ ПЕРЕИМЕНОВАНИЕ SESSION ФАЙЛОВ")
+                print("="*50)
+                
+                # Показываем список текущих сессий
+                sessions_dir = "sessions"
+                if not os.path.exists(sessions_dir):
+                    print("❌ Папка sessions не найдена")
+                    continue
+                
+                session_files = [f.replace('.session', '') for f in os.listdir(sessions_dir) if f.endswith('.session')]
+                
+                if not session_files:
+                    print("📭 Нет session файлов для переименования")
+                    continue
+                
+                print("📋 Текущие session файлы:")
+                for i, session_name in enumerate(session_files, 1):
+                    print(f"   {i}. {session_name}")
+                
+                print()
+                old_name = await async_input("Введите текущее имя сессии для переименования: ")
+                old_name = old_name.strip()
+                
+                if old_name not in session_files:
+                    print(f"❌ Session файл '{old_name}' не найден")
+                    continue
+                
+                new_name = await async_input("Введите новое имя сессии: ")
+                new_name = new_name.strip()
+                
+                if not new_name:
+                    print("❌ Новое имя не может быть пустым")
+                    continue
+                
+                if new_name in session_files:
+                    print(f"❌ Session файл '{new_name}' уже существует")
+                    continue
+                
+                # Переименовываем файл
+                try:
+                    old_path = os.path.join(sessions_dir, f"{old_name}.session")
+                    new_path = os.path.join(sessions_dir, f"{new_name}.session")
+                    
+                    os.rename(old_path, new_path)
+                    print(f"✅ Session файл переименован: {old_name} → {new_name}")
+                    
+                    # Перезагружаем аккаунты
+                    print("🔄 Перезагружаем список аккаунтов...")
+                    if self.account_manager.load_accounts():
+                        print("✅ Список аккаунтов обновлен")
+                        await self.sync_scheduler_with_accounts()
+                    
+                except Exception as e:
+                    print(f"❌ Ошибка переименования: {e}")
+                    self.logger.error(f"Ошибка переименования session файла: {e}")
                     
             elif choice == '0':
                 break
@@ -1096,28 +1180,65 @@ class TelegramBot:
 
 async def main():
     """Главная функция"""
+    # Выводим приветствие сразу
+    print("\n=== By Donut company INC. ===")
+    print("Добро пожаловать в TELEGRAM MULTY\n")
+    
     bot = TelegramBot()
     
     try:
         # Инициализация
         if not await bot.initialize():
-            print("\n❌ Ошибка инициализации. Проверьте настройки и попробуйте снова.")
+            print("\n❌ Ошибка инициализации.")
+            print("\nЧто нужно сделать:")
+            print("1. Убедитесь что у вас есть API данные (config.json или .env файл)")
+            print("2. Добавьте хотя бы один аккаунт через пункт меню '3. Управление аккаунтами'")
+            print("3. Если есть поврежденные session файлы - удалите их через пункт '6' в меню управления")
+            
+            # Предлагаем удалить поврежденные session файлы
+            try:
+                delete_sessions = await async_input("\nУдалить все session файлы и начать заново? (y/n): ")
+                if delete_sessions.strip().lower() == 'y':
+                    sessions_dir = "sessions"
+                    if os.path.exists(sessions_dir):
+                        session_files = [f for f in os.listdir(sessions_dir) if f.endswith('.session')]
+                        deleted_count = 0
+                        
+                        for session_file in session_files:
+                            session_path = os.path.join(sessions_dir, session_file)
+                            try:
+                                os.remove(session_path)
+                                deleted_count += 1
+                                print(f"Удален: {session_file}")
+                            except Exception as e:
+                                print(f"Не удалось удалить {session_file}: {e}")
+                        
+                        if deleted_count > 0:
+                            print(f"\n✅ Удалено {deleted_count} session файлов")
+                            print("Перезапустите программу для добавления новых аккаунтов")
+                        else:
+                            print("Не найдено session файлов для удаления")
+                    else:
+                        print("Папка sessions не найдена")
+            except KeyboardInterrupt:
+                print("\nОперация прервана")
+            
             return
         
         # Интерактивное меню
         while True:
-            print("\n=== By Donut company INC. ===")
-            print("\n=== TELEGRAM MULTI-ACCOUNT SENDER ===")
-            print("1. Начать рассылку")
-            print("2. Показать статистику аккаунтов")
-            print("3. 🔐 Управление аккаунтами")
-            print("4. 📺 Собрать участников из Telegram канала")
+            print("\n=== TELEGRAM MULTY ===")
+            print("1. Мои аккаунты и статистика")
+            print("2. Добавить/убрать аккаунты")
+            print("3. Настройки")
+            print("4. Собрать лидов из Telegram канала")
+            print("5. Начать рассылку")
             print("0. Выход")
             
             choice = await async_input("Выберите действие: ")
             choice = choice.strip()
             
-            if choice == '1':
+            if choice == '5':
                 print("\n🚀 ПОДГОТОВКА К РАССЫЛКЕ")
                 print("="*50)
                 
@@ -1126,7 +1247,7 @@ async def main():
                     print("❌ Нет загруженных получателей!")
                     print("\n📋 Варианты действий:")
                     print("  1. Собрать участников из Telegram канала (автоматически)")
-                    print("  2. Использовать пункт 4 в главном меню")
+                    print("  2. Использовать пункт 5 в главном меню")
                     print("  3. Поместить данные в data/messages_data.json вручную")
                     
                     choice = await async_input("\nСобрать участников канала сейчас? (y/n): ")
@@ -1215,8 +1336,18 @@ async def main():
                 
                 await bot.start_sending(max_messages)
                 
-            elif choice == '2':
+            elif choice == '1':
                 bot.account_manager.print_account_stats_russian()
+                
+            elif choice == '2':
+                # Добавить/убрать аккаунты
+                await bot.auth_manager.interactive_account_management()
+                # Перезагружаем аккаунты после изменений
+                if not bot.account_manager.load_accounts():
+                    print("❌ Не удалось перезагрузить аккаунты после изменений")
+                else:
+                    # Синхронизируем scheduler с обновленными аккаунтами
+                    await bot.sync_scheduler_with_accounts()
                 
             elif choice == '3':
                 await bot.account_management_menu()
@@ -1226,7 +1357,7 @@ async def main():
                 active_accounts = await bot.account_manager.get_active_accounts_list()
                 if not active_accounts:
                     print("❌ Нет активных аккаунтов для сбора участников")
-                    print("Сначала подключите хотя бы один аккаунт (пункт 3)")
+                    print("Сначала добавьте хотя бы один аккаунт (пункт 3)")
                     continue
                 
                 try:
@@ -1236,7 +1367,6 @@ async def main():
                     
                     if account_data['client'] and account_data['is_active']:
                         bot.member_collector.set_external_client(account_data['client'])
-                        print(f"🔐 Используется авторизованный аккаунт: {first_account}")
                     
                     # Используем новый модуль сбора участников
                     success = await bot.member_collector.collect_members_menu()

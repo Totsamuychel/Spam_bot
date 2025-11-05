@@ -71,7 +71,7 @@ class MemberCollector:
         print("📥 СБОР УЧАСТНИКОВ TELEGRAM-ГРУППЫ/КАНАЛА")
         print("="*60)
         print("Выберите способ сбора участников:")
-        print("1. По username или ссылке")
+        print("1. Есть доступ к админ правам")
         print("2. По названию публичной группы/канала")
         print("0. Отмена")
         print("="*60)
@@ -114,7 +114,7 @@ class MemberCollector:
                     print("❌ Ввод не может быть пустым")
                     continue
                 
-                if not self.validate_channel_input(channel_input):
+                if not MemberCollector.validate_channel_input(channel_input):
                     print("❌ Неверный формат. Попробуйте еще раз.")
                     continue
                 
@@ -126,13 +126,13 @@ class MemberCollector:
     
     async def collect_by_display_name(self) -> bool:
         """Способ 2: Сбор участников по названию, username или ссылке группы/канала"""
-        print("\n🔍 СБОР ПО НАЗВАНИЮ, USERNAME ИЛИ ССЫЛКЕ")
+        print("\n🔍 Сбор людей по названию ТГК, USERNAME ИЛИ ССЫЛКЕ")
         print("-" * 50)
         print("Поддерживаемые форматы ввода:")
-        print("• Название: Бензин в Самарканде")
-        print("• Username: @benzin_samarkand")
-        print("• Ссылка: https://t.me/benzin_samarkand")
-        print("• Ссылка: t.me/benzin_samarkand")
+        print("• Название: TestMarket")
+        print("• Username: @TestMarkett")
+        print("• Ссылка: https://t.me/TestMarkett")
+        print("• Ссылка: t.me/TestMarkett")
         
         while True:
             try:
@@ -155,26 +155,16 @@ class MemberCollector:
                     # Если это username или ссылка - сразу парсим
                     return await self._collect_by_username_or_link(user_input)
                 else:
-                    # Если это название - ищем по display name
+                    # Если это название - ищем по display name (вызываем метод напрямую)
                     return await self.collect_members_by_display_name(user_input)
                 
             except KeyboardInterrupt:
                 print("\n❌ Операция прервана пользователем")
                 return False
     
-    async def collect_members_by_input(self, user_input: str) -> bool:
-        """Обработка различных типов ввода: название, username или ссылка"""
-        # Определяем тип ввода
-        input_type = self._detect_input_type(user_input)
-        
-        print(f"🔍 Обнаружен тип ввода: {input_type}")
-        
-        if input_type == "username_or_link":
-            # Если это username или ссылка - сразу парсим
-            return await self._collect_by_username_or_link(user_input)
-        else:
-            # Если это название - ищем по display name
-            return await self.collect_members_by_display_name(user_input)
+    # МЕТОД УДАЛЕН - использовал рекурсию через collect_by_display_name
+    # Вместо него используйте collect_members_by_input_async или напрямую вызывайте
+    # _collect_by_username_or_link или collect_members_by_display_name
     
     async def _collect_by_username_or_link(self, user_input: str) -> bool:
         """Сбор участников по username или ссылке"""
@@ -191,16 +181,19 @@ class MemberCollector:
             # Используем внешний клиент, если доступен
             if self.external_client:
                 client = self.external_client
-                print("🔐 Используется авторизованный клиент из основного бота")
             else:
                 # Создаем собственное подключение
                 client = TelegramClient(self.session_name, self.api_id, self.api_hash)
-                await client.connect()
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                except asyncio.TimeoutError:
+                    print("❌ Таймаут подключения к Telegram")
+                    return False
                 client_owned = True
                 
                 if not await client.is_user_authorized():
                     print("❌ Не авторизован для сбора участников")
-                    print("💡 Подсказка: Сначала авторизуйтесь через основной бот (пункт 3 в меню)")
+                    print("💡 Подсказка: Добавьте аккаунт через главное меню (пункт 3)")
                     return False
             
             # Получаем сущность канала/группы
@@ -243,11 +236,11 @@ class MemberCollector:
             return False
         finally:
             # Отключаем только если создали клиент сами
-            if client_owned and client and client.is_connected():
+            if client_owned and client:
                 try:
                     await client.disconnect()
                 except:
-                    pass
+                    pass  # Игнорируем все ошибки отключения
     
     def _detect_input_type(self, user_input: str) -> str:
         """Определение типа ввода: username/ссылка или название"""
@@ -293,7 +286,7 @@ class MemberCollector:
         print(f"🏢 Тип: {entity_type}")
         
         # Количество участников
-        participants_count = getattr(entity, 'participants_count', 0)
+        participants_count = getattr(entity, 'participants_count', None)
         if participants_count:
             print(f"👥 Участников: {participants_count}")
         
@@ -314,16 +307,19 @@ class MemberCollector:
             # Используем внешний клиент, если доступен
             if self.external_client:
                 client = self.external_client
-                print("🔐 Используется авторизованный клиент из основного бота")
             else:
                 # Создаем собственное подключение
                 client = TelegramClient(self.session_name, self.api_id, self.api_hash)
-                await client.connect()
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                except asyncio.TimeoutError:
+                    print("❌ Таймаут подключения к Telegram")
+                    return False
                 client_owned = True
                 
                 if not await client.is_user_authorized():
                     print("❌ Не авторизован для поиска групп")
-                    print("💡 Подсказка: Сначала авторизуйтесь через основной бот (пункт 3 в меню)")
+                    print("💡 Подсказка: Добавьте аккаунт через главное меню (пункт 3)")
                     return False
             
             # Цикл для повторного ввода при неудачном поиске
@@ -471,11 +467,11 @@ class MemberCollector:
             return False
         finally:
             # Отключаем только если создали клиент сами
-            if client_owned and client and client.is_connected():
+            if client_owned and client:
                 try:
                     await client.disconnect()
                 except:
-                    pass
+                    pass  # Игнорируем все ошибки отключения
     
     async def _search_public_chats(self, client: TelegramClient, query: str) -> List[Dict]:
         """Поиск публичных чатов по названию"""
@@ -507,7 +503,7 @@ class MemberCollector:
                                     'title': title,
                                     'username': entity.username,
                                     'type': 'Канал' if getattr(entity, 'broadcast', False) else 'Группа',
-                                    'participants_count': getattr(entity, 'participants_count', 0),
+                                    'participants_count': getattr(entity, 'participants_count', None),
                                     'is_public': True
                                 }
                                 found_chats.append(chat_info)
@@ -518,7 +514,7 @@ class MemberCollector:
                                 'title': title,
                                 'username': None,
                                 'type': 'Группа',
-                                'participants_count': getattr(entity, 'participants_count', 0),
+                                'participants_count': getattr(entity, 'participants_count', None),
                                 'is_public': True
                             }
                             found_chats.append(chat_info)
@@ -540,7 +536,7 @@ class MemberCollector:
                                     'title': title,
                                     'username': entity.username,
                                     'type': 'Канал' if getattr(entity, 'broadcast', False) else 'Группа',
-                                    'participants_count': getattr(entity, 'participants_count', 0),
+                                    'participants_count': getattr(entity, 'participants_count', None),
                                     'is_public': True
                                 }
                                 found_chats.append(chat_info)
@@ -608,16 +604,19 @@ class MemberCollector:
             # Используем внешний клиент, если доступен
             if self.external_client:
                 client = self.external_client
-                print("🔐 Используется авторизованный клиент из основного бота")
             else:
                 # Создаем собственное подключение
                 client = TelegramClient(self.session_name, self.api_id, self.api_hash)
-                await client.connect()
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                except asyncio.TimeoutError:
+                    print("❌ Таймаут подключения к Telegram")
+                    return False
                 client_owned = True
                 
                 if not await client.is_user_authorized():
                     print("❌ Не авторизован для сбора участников")
-                    print("💡 Подсказка: Сначала авторизуйтесь через основной бот (пункт 3 в меню)")
+                    print("💡 Подсказка: Добавьте аккаунт через главное меню (пункт 3)")
                     return False
             
             # Извлекаем username канала
@@ -644,11 +643,11 @@ class MemberCollector:
             return False
         finally:
             # Отключаем только если создали клиент сами
-            if client_owned and client and client.is_connected():
+            if client_owned and client:
                 try:
                     await client.disconnect()
                 except:
-                    pass
+                    pass  # Игнорируем все ошибки отключения
     
     async def _collect_members_from_entity(self, client: TelegramClient, entity) -> bool:
         """Сбор участников из конкретной сущности (канал/группа)"""
@@ -658,7 +657,7 @@ class MemberCollector:
             
             # Получаем информацию о канале/группе
             title = getattr(entity, 'title', 'Неизвестно')
-            participants_count = getattr(entity, 'participants_count', 0)
+            participants_count = getattr(entity, 'participants_count', None)
             
             print(f"📺 Канал/группа: {title}")
             print(f"👥 Участников: {participants_count}")
@@ -735,13 +734,13 @@ class MemberCollector:
         Максимально эффективное получение участников публичных групп/каналов
         Использует агрессивные параметры и множественные методы для обхода лимитов Telegram
         """
-        all_participants = {}  # Словарь для исключения дубликатов по user_id
+        all_participants = {}  # Словарь для исключения дубликатов по user_id (ограничен размером)
         
         # Получаем информацию о канале для анализа
-        total_count = getattr(entity, 'participants_count', 0)
+        total_count = getattr(entity, 'participants_count', None)
         entity_type = "Канал" if getattr(entity, 'broadcast', False) else "Супергруппа" if getattr(entity, 'megagroup', False) else "Группа"
         
-        print(f"📊 Анализ {entity_type}: {total_count} участников заявлено")
+        print(f"📊 Анализ {entity_type}: {total_count if total_count is not None else 'Неизвестно'} участников заявлено")
         
         # Предварительная оценка возможностей сбора
         await self._estimate_collection_potential(client, entity, total_count)
@@ -749,7 +748,7 @@ class MemberCollector:
         # Метод 1: Агрессивный сбор с оптимальными параметрами
         try:
             print("🚀 Метод 1: Агрессивный сбор участников (aggressive=True)")
-            self.logger.info(f"Начинаем агрессивный сбор участников для {entity_type} с {total_count} участниками")
+            self.logger.info(f"Начинаем агрессивный сбор участников для {entity_type} с {total_count if total_count is not None else 'неизвестным количеством'} участниками")
             
             # Используем пагинацию для получения всех участников
             aggressive_participants = await self._get_all_participants_paginated(client, entity)
@@ -757,15 +756,15 @@ class MemberCollector:
             for participant in aggressive_participants:
                 all_participants[participant.id] = participant
             
-            coverage_percent = (len(aggressive_participants) / total_count * 100) if total_count and total_count > 0 else 0
+            coverage_percent = (len(aggressive_participants) / total_count * 100) if total_count is not None and total_count > 0 else 0
             
             print(f"✅ Агрессивный метод: получено {len(aggressive_participants)} участников")
             print(f"📊 Покрытие: {coverage_percent:.1f}% от заявленного количества")
             
-            self.logger.info(f"Агрессивный сбор: {len(aggressive_participants)}/{total_count} участников ({coverage_percent:.1f}%)")
+            self.logger.info(f"Агрессивный сбор: {len(aggressive_participants)}/{total_count if total_count is not None else 'неизвестно'} участников ({coverage_percent:.1f}%)")
             
             # Анализируем качество покрытия
-            if coverage_percent < 50 and total_count and total_count > 100:
+            if coverage_percent < 50 and total_count is not None and total_count > 100:
                 print("⚠️ Низкое покрытие! Telegram ограничивает доступ к полному списку участников")
                 print("💡 Это техническое ограничение мессенджера для борьбы со спамом")
                 use_additional_methods = True
@@ -778,9 +777,10 @@ class MemberCollector:
             
         except ChatAdminRequiredError:
             print("❌ ChatAdminRequiredError: Требуются права администратора")
-            print("💡 Рекомендация: Для сбора полного списка участников этой группы/канала требуется быть админом")
-            self.logger.warning("Агрессивный сбор заблокирован: требуются права администратора")
-            use_additional_methods = True
+            print("💡 Рекомендация: Для сбора участников этой группы/канала требуется быть админом")
+            print("⚠️ Fallback методы не помогут при отсутствии админ-прав")
+            self.logger.warning("Сбор невозможен: требуются права администратора")
+            return []  # Сразу возвращаем пустой список
             
         except ChannelPrivateError:
             print("❌ ChannelPrivateError: Канал/группа приватная или недоступна")
@@ -832,22 +832,34 @@ class MemberCollector:
         try:
             print("🔍 Выполняем тестовую оценку возможностей сбора...")
             
-            # Тестовый запрос с малым лимитом для оценки
-            test_participants = await client.get_participants(entity, limit=100)
-            test_count = len(test_participants)
+            # Проверяем подключение перед тестовым запросом
+            if not client.is_connected():
+                print("❌ Клиент не подключен для оценки")
+                return
             
-            if total_count and total_count > 0:
-                estimated_coverage = min(100, (test_count / min(100, total_count)) * 100)
+            # Тестовый запрос с малым лимитом для оценки
+            try:
+                test_participants = await client.get_participants(entity, limit=10)  # Уменьшаем лимит для безопасности
+                test_count = len(test_participants)
+            except ChatAdminRequiredError:
+                print("⚠️ Требуются права администратора для оценки")
+                return
+            except Exception as test_error:
+                print(f"⚠️ Не удалось выполнить тестовый запрос: {test_error}")
+                return
+            
+            if total_count is not None and total_count > 0:
+                estimated_coverage = min(100, (test_count / min(10, total_count)) * 100)
                 
                 if total_count > 10000:
                     print(f"⚠️ Большая группа ({total_count} участников)")
                     print("💡 Telegram не предоставляет полный список участников для больших групп без админ-прав")
                     print(f"📊 Прогноз сбора: ~{min(5000, total_count // 2)} участников из {total_count}")
                 elif estimated_coverage < 50:
-                    print(f"⚠️ Ограниченный доступ (тест: {test_count}/100)")
+                    print(f"⚠️ Ограниченный доступ (тест: {test_count}/10)")
                     print("💡 Группа/канал имеет ограничения на просмотр участников")
                 else:
-                    print(f"✅ Хорошие перспективы сбора (тест: {test_count}/100)")
+                    print(f"✅ Хорошие перспективы сбора (тест: {test_count}/10)")
                     print(f"📊 Прогноз: возможно получить значительную часть от {total_count} участников")
             else:
                 print("⚠️ Количество участников неизвестно, выполняем полный анализ...")
@@ -860,61 +872,65 @@ class MemberCollector:
             self.logger.debug(f"Ошибка предварительной оценки: {e}")
     
     async def _get_all_participants_paginated(self, client: TelegramClient, entity) -> List:
-        """Получение всех участников с использованием пагинации"""
-        all_participants = []
-        offset = 0
-        batch_count = 0
+        """Получение всех участников с использованием правильной пагинации через iter_participants"""
+        all_participants = {}  # Используем словарь для автоматической дедупликации
+        processed_count = 0
+        max_memory_limit = 10000  # Лимит для предотвращения утечки памяти
         
-        print("📄 Используем пагинацию для максимального покрытия...")
+        print("📄 Используем iter_participants для максимального покрытия...")
         
         try:
-            while True:
-                batch_count += 1
-                
-                # Получаем батч участников
+            # Проверяем подключение перед началом
+            if not client.is_connected():
+                print("❌ Клиент не подключен, попытка переподключения...")
                 try:
-                    batch = await client.get_participants(
-                        entity, 
-                        aggressive=True,
-                        limit=self.BATCH_SIZE
-                    )
-                    # Для пагинации используем срез
-                    if offset > 0:
-                        batch = batch[offset:offset + self.BATCH_SIZE] if offset < len(batch) else []
-                except Exception as e:
-                    print(f"⚠️ Ошибка получения батча: {e}")
-                    batch = []
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                except asyncio.TimeoutError:
+                    print("❌ Таймаут переподключения")
+                    return []
+            
+            async for participant in client.iter_participants(entity):
+                # Проверяем подключение во время сбора
+                if not client.is_connected():
+                    print("⚠️ Соединение потеряно во время сбора, попытка переподключения...")
+                    try:
+                        await asyncio.wait_for(client.connect(), timeout=10)
+                    except (Exception, asyncio.TimeoutError) as reconnect_error:
+                        print(f"❌ Не удалось переподключиться: {reconnect_error}")
+                        break
                 
-                if not batch:
-                    print(f"✅ Пагинация завершена: обработано {batch_count} батчей")
-                    break
+                # Фильтруем ботов и удаленные аккаунты
+                if getattr(participant, 'bot', False) or getattr(participant, 'deleted', False):
+                    continue
                 
-                all_participants.extend(batch)
-                offset += len(batch)
+                # Добавляем участника (автоматическая дедупликация по ID)
+                all_participants[participant.id] = participant
+                processed_count += 1
                 
-                print(f"📦 Батч {batch_count}: +{len(batch)} участников (всего: {len(all_participants)})")
+                # Показываем прогресс каждые 100 участников
+                if processed_count % 100 == 0:
+                    print(f"📦 Обработано: {processed_count} участников")
                 
-                # Адаптивная задержка между батчами
-                delay = self._get_adaptive_delay()
-                await asyncio.sleep(delay)
+                # Адаптивная задержка каждые 50 участников
+                if processed_count % 50 == 0:
+                    delay = self._get_adaptive_delay()
+                    await asyncio.sleep(delay)
                 
-                # Защита от бесконечного цикла
-                if len(batch) < self.BATCH_SIZE:
-                    print(f"✅ Получен неполный батч, завершаем пагинацию")
-                    break
-                
-                # Ограничение для очень больших групп
-                if len(all_participants) >= 50000:
-                    print(f"⚠️ Достигнут лимит 50k участников, завершаем сбор")
+                # Ограничение для предотвращения утечки памяти
+                if processed_count >= max_memory_limit:
+                    print(f"⚠️ Достигнут лимит памяти ({max_memory_limit} участников), завершаем сбор")
+                    print("💡 Это защита от утечки памяти для очень больших групп")
                     break
             
-            print(f"📊 Пагинация: собрано {len(all_participants)} участников за {batch_count} батчей")
-            return all_participants
+            participants_list = list(all_participants.values())
+            print(f"📊 Итерация завершена: собрано {len(participants_list)} уникальных участников")
+            return participants_list
             
         except Exception as e:
-            print(f"⚠️ Ошибка пагинации: {e}")
-            self.logger.error(f"Ошибка пагинации: {e}")
-            return all_participants  # Возвращаем что успели собрать
+            print(f"⚠️ Ошибка итерации участников: {e}")
+            self.logger.error(f"Ошибка итерации участников: {e}")
+            participants_list = list(all_participants.values())
+            return participants_list  # Возвращаем что успели собрать
     
     async def _offer_additional_methods(self, client, entity, all_participants: dict, total_count: int):
         """Предлагает пользователю дополнительные методы сбора"""
@@ -922,9 +938,27 @@ class MemberCollector:
         
         print(f"\n📊 ПРОМЕЖУТОЧНЫЕ РЕЗУЛЬТАТЫ:")
         print(f"✅ Собрано участников: {current_count}")
-        if total_count and total_count > 0:
+        if total_count is not None and total_count > 0:
             coverage = (current_count / total_count) * 100
             print(f"📈 Покрытие: {coverage:.1f}% от заявленного")
+        
+        # Проверяем, имеет ли смысл запускать дополнительные методы
+        if current_count == 0:
+            print("\n⚠️ Основной метод не дал результатов")
+            print("�И Дополнительные методы вряд ли помогут при полном отсутствии доступа")
+            print("🔄 Рекомендуется:")
+            print("   • Проверить права доступа к группе/каналу")
+            print("   • Попробовать другой аккаунт")
+            print("   • Убедиться что группа/канал публичные")
+            
+            try:
+                choice = await self._async_input("\nВсе равно попробовать дополнительные методы? (y/n): ")
+                if choice.strip().lower() != 'y':
+                    print("⏭️ Завершаем сбор")
+                    return
+            except KeyboardInterrupt:
+                print("\n❌ Операция прервана пользователем")
+                return
         
         print(f"\n💡 ДОСТУПНЫЕ ДОПОЛНИТЕЛЬНЫЕ МЕТОДЫ:")
         print("1. 📜 Анализ истории сообщений (может найти +100-1000 участников)")
@@ -1090,11 +1124,18 @@ class MemberCollector:
         participants_dict = {}
         successful_searches = 0
         total_patterns = len(patterns)
+        empty_results_count = 0
+        max_empty_results = 20  # Максимум пустых результатов подряд
         
         print(f"🔍 Начинаем поиск по {total_patterns} паттернам...")
         
         for i, pattern in enumerate(patterns, 1):
             try:
+                # Проверяем подключение
+                if not client.is_connected():
+                    print("⚠️ Соединение потеряно во время поиска")
+                    break
+                
                 # Показываем прогресс каждые 10 паттернов
                 if i % 10 == 0 or i == total_patterns:
                     progress = (i / total_patterns) * 100
@@ -1105,6 +1146,15 @@ class MemberCollector:
                     search=pattern, 
                     limit=100
                 )
+                
+                # Проверяем пустые результаты
+                if not search_results:
+                    empty_results_count += 1
+                    if empty_results_count >= max_empty_results:
+                        print(f"⚠️ Получено {max_empty_results} пустых результатов подряд, возможно паттерны неэффективны")
+                        break
+                else:
+                    empty_results_count = 0  # Сбрасываем счетчик при успешном результате
                 
                 new_users = 0
                 for user in search_results:
@@ -1131,6 +1181,14 @@ class MemberCollector:
         
         participants = list(participants_dict.values())
         print(f"🎯 Поиск завершен: найдено {len(participants)} участников через {successful_searches} успешных поисков")
+        
+        # Проверяем качество результатов
+        if len(participants) == 0:
+            print("⚠️ Поиск по паттернам не дал результатов")
+            print("💡 Возможные причины:")
+            print("   • Группа имеет ограничения на поиск участников")
+            print("   • Выбранные паттерны неэффективны для данной группы")
+            print("   • Требуются права администратора")
         
         return participants
     
@@ -1206,6 +1264,15 @@ class MemberCollector:
             
             print("📜 Анализируем историю сообщений для поиска участников...")
             
+            # Проверяем подключение перед началом
+            if not client.is_connected():
+                print("❌ Клиент не подключен для анализа сообщений")
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                except asyncio.TimeoutError:
+                    print("❌ Таймаут подключения при анализе сообщений")
+                    return []
+            
             # Получаем сообщения за разные периоды для большего охвата
             try:
                 async for message in client.iter_messages(entity, limit=max_messages):
@@ -1229,6 +1296,16 @@ class MemberCollector:
                                             participants_dict[mentioned_user.id] = mentioned_user
                                 except:
                                     pass  # Игнорируем ошибки получения упомянутых пользователей
+                    
+                    # Проверяем подключение каждые 100 сообщений
+                    if message_count % 100 == 0:
+                        if not client.is_connected():
+                            print("⚠️ Соединение потеряно во время анализа сообщений")
+                            try:
+                                await asyncio.wait_for(client.connect(), timeout=10)
+                            except asyncio.TimeoutError:
+                                print("❌ Не удалось переподключиться, завершаем анализ")
+                                break
                     
                     # Показываем прогресс каждые 200 сообщений
                     if message_count % 200 == 0:
@@ -1327,7 +1404,7 @@ class MemberCollector:
             # Анализ типа сущности
             is_channel = getattr(entity, 'broadcast', False)
             is_megagroup = getattr(entity, 'megagroup', False)
-            participants_count = getattr(entity, 'participants_count', 0)
+            participants_count = getattr(entity, 'participants_count', None)
             
             if is_channel:
                 print("📺 Это канал. Каналы часто имеют ограничения на просмотр подписчиков")
@@ -1342,7 +1419,7 @@ class MemberCollector:
                 print("   • Убедитесь что группа публичная")
                 print("   • Проверьте настройки приватности группы")
             
-            if participants_count and participants_count > 10000:
+            if participants_count is not None and participants_count > 10000:
                 print(f"⚠️ Большая группа ({participants_count} участников)")
                 print("   • Telegram принципиально не выдает полные списки больших групп")
                 print("   • Это защита от спама и злоупотреблений")

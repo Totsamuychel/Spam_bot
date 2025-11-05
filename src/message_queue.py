@@ -38,24 +38,24 @@ class MessageQueue:
             self.recipients = data.get('recipients', [])
             
             if not self.message_text:
-                self.logger.error("Не найден текст сообщения в файле данных")
+                self.logger.info("Не найден текст сообщения в файле данных")
                 return False
                 
             if not self.recipients:
-                self.logger.error("Не найдены получатели в файле данных")
+                self.logger.info("Не найдены получатели в файле данных")
                 return False
                 
             self.logger.info(f"Загружено {len(self.recipients)} получателей")
             return True
             
         except FileNotFoundError:
-            self.logger.error(f"Файл {self.data_file} не найден")
+            self.logger.info(f"Файл {self.data_file} не найден")
             return False
         except json.JSONDecodeError as e:
-            self.logger.error(f"Ошибка парсинга JSON: {e}")
+            self.logger.info(f"Ошибка парсинга JSON: {e}")
             return False
         except Exception as e:
-            self.logger.error(f"Ошибка загрузки данных: {e}", exc_info=True)
+            self.logger.info(f"Ошибка загрузки данных: {e}")
             return False
     
     def create_message_queue(self, available_accounts: List[str], max_messages: Optional[int] = None) -> int:
@@ -127,7 +127,7 @@ class MessageQueue:
             )
             
             return task
-            
+        
         except Exception as e:
             self.logger.error(f"Ошибка создания задачи для {recipient}: {e}")
             return None

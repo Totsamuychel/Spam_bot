@@ -105,10 +105,7 @@ class SmartScheduler:
                     continue
             
                 # Проверяем активные часы (имитация человеческого поведения)
-                if not self._is_active_hour(current_time):
-                    # В неактивные часы работаем с пониженной вероятностью
-                    if random.random() > 0.2:  # 20% шанс работы в неактивные часы
-                        continue
+                # Убрана блокировка в неактивные часы - рассылка работает всегда
                 
                 available_accounts.append((account_name, schedule))
             
@@ -140,22 +137,12 @@ class SmartScheduler:
         schedule.last_activity = current_time
         
         # Рассчитываем следующее время отправки
-        base_delay = random.uniform(3.0, 6.0)  # Базовая задержка 3-6 секунд
+        # Базовая задержка 3-6 секунд (это единственная задержка!)
+        total_delay = random.uniform(3.0, 6.0)
         
-        # Увеличиваем задержку в зависимости от активности
-        activity_multiplier = 1.0 + (schedule.messages_sent_today / 36.0) * 0.5
-        
-        # Штрафной множитель
-        penalty_delay = base_delay * schedule.penalty_multiplier
-        
-        # Дополнительная задержка для новых чатов
-        new_chat_delay = random.uniform(10.0, 30.0) if is_new_chat else 0
-        
-        # Итоговая задержка
-        total_delay = (base_delay * activity_multiplier) + penalty_delay + new_chat_delay
-        
-        # Добавляем случайную вариацию для имитации человеческого поведения
-        total_delay += random.uniform(5.0, 15.0)
+        # Применяем штрафной множитель только если есть штрафы
+        if schedule.penalty_multiplier > 1.0:
+            total_delay *= schedule.penalty_multiplier
         
         schedule.next_send_time = current_time + total_delay
         
@@ -210,19 +197,19 @@ class SmartScheduler:
     
     def _check_daily_reset(self, current_time: float):
         """Проверить нужно ли сбросить дневные счетчики"""
-        # Проверяем прошли ли сутки с последнего сброса
-        if current_time - self.last_daily_reset > 86400:  # 24 часа
-            current_hour = time.localtime(current_time).tm_hour
+        # Получаем текущую дату
+        current_date = time.localtime(current_time).tm_yday  # День года
+        last_reset_date = time.localtime(self.last_daily_reset).tm_yday
+        
+        # Сбрасываем если сменился день
+        if current_date != last_reset_date:
+            for schedule in self.account_schedules.values():
+                schedule.messages_sent_today = 0
+                schedule.new_chats_today = 0
+                schedule.penalty_multiplier = max(1.0, schedule.penalty_multiplier * 0.8)  # Уменьшаем штрафы
             
-            # Сбрасываем в указанный час
-            if current_hour == self.DAILY_RESET_HOUR:
-                for schedule in self.account_schedules.values():
-                    schedule.messages_sent_today = 0
-                    schedule.new_chats_today = 0
-                    schedule.penalty_multiplier = max(1.0, schedule.penalty_multiplier * 0.8)  # Уменьшаем штрафы
-                
-                self.last_daily_reset = current_time
-                self.logger.info("Дневные счетчики сброшены")
+            self.last_daily_reset = current_time
+            self.logger.info(f"Дневные счетчики сброшены (новый день: {current_date})")
     
     def _is_active_hour(self, current_time: float) -> bool:
         """Проверить активные часы для имитации человеческого поведения"""

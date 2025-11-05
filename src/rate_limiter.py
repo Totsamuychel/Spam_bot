@@ -36,7 +36,8 @@ class RateLimiter:
                               if current_time - t < 60])
         
         if minute_messages >= self.MESSAGES_PER_MINUTE:
-            wait_time = 60 - (current_time - min(self.message_history[account_name]))
+            min_time = min(self.message_history[account_name])
+            wait_time = max(0, min_time + 60 - current_time)
             self.logger.warning(f"Лимит в минуту для {account_name}. Ожидание: {wait_time:.1f}с")
             return False, wait_time
         
@@ -45,7 +46,8 @@ class RateLimiter:
                             if current_time - t < 3600])
         
         if hour_messages >= self.MESSAGES_PER_HOUR:
-            wait_time = 3600 - (current_time - min(self.message_history[account_name]))
+            min_time = min(self.message_history[account_name])
+            wait_time = max(0, min_time + 3600 - current_time)
             self.logger.warning(f"Лимит в час для {account_name}. Ожидание: {wait_time:.1f}с")
             return False, wait_time
         
@@ -55,7 +57,8 @@ class RateLimiter:
                                if current_time - t < 86400])
             
             if day_new_chats >= self.NEW_CHATS_PER_DAY:
-                wait_time = 86400 - (current_time - min(self.new_chats_history[account_name]))
+                min_time = min(self.new_chats_history[account_name])
+                wait_time = max(0, min_time + 86400 - current_time)
                 self.logger.warning(f"Лимит новых чатов для {account_name}. Ожидание: {wait_time:.1f}с")
                 return False, wait_time
         

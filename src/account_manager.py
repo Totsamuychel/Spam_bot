@@ -4,7 +4,13 @@ import logging
 import asyncio
 from typing import List, Dict, Optional
 from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
+from telethon.errors import (
+    SessionPasswordNeededError, 
+    PhoneCodeInvalidError,
+    AuthKeyUnregisteredError,
+    AuthKeyDuplicatedError,
+    AuthKeyInvalidError
+)
 
 class AccountManager:
     """Управление аккаунтами Telegram для мультиаккаунтной рассылки"""
@@ -16,34 +22,86 @@ class AccountManager:
         self.current_account_index = 0
         self._account_lock = asyncio.Lock()  # Защита от race conditions
         self.logger = logging.getLogger(__name__)
+    
+    def _remove_corrupted_session(self, account_name: str, session_path: str, reason: str):
+        """Удаление поврежденного session файла"""
+        try:
+            if os.path.exists(session_path):
+                os.remove(session_path)
+                self.logger.warning(f"Удален поврежденный session файл: {session_path}")
+                self.logger.warning(f"Причина: {reason}")
+                print(f"Аккаунт {account_name}: поврежденная сессия удалена")
+                print(f"Причина: {reason}")
+                print(f"Необходимо заново авторизовать аккаунт через меню '3. Управление аккаунтами'")
+                return True
+        except Exception as e:
+            self.logger.error(f"Ошибка удаления поврежденной сессии {session_path}: {e}")
+        return False
+    
+    def _check_session_file_integrity(self, session_path: str) -> bool:
+        """Базовая проверка целостности session файла"""
+        try:
+            # Проверяем что файл существует и не пустой
+            if not os.path.exists(session_path):
+                return False
+            
+            file_size = os.path.getsize(session_path)
+            if file_size < 100:  # Session файл должен быть больше 100 байт
+                self.logger.warning(f"Session файл {session_path} слишком мал ({file_size} байт)")
+                return False
+            
+            # Проверяем что это SQLite файл (session файлы Telethon - это SQLite)
+            try:
+                with open(session_path, 'rb') as f:
+                    header = f.read(16)
+                    if not header.startswith(b'SQLite format 3'):
+                        self.logger.warning(f"Session файл {session_path} не является SQLite базой")
+                        return False
+            except Exception as e:
+                self.logger.warning(f"Ошибка чтения заголовка {session_path}: {e}")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.warning(f"Ошибка проверки целостности {session_path}: {e}")
+            return False
         
     def load_accounts(self) -> bool:
         """Загрузка всех доступных аккаунтов из папки sessions"""
         try:
             if not os.path.exists(self.sessions_dir):
                 os.makedirs(self.sessions_dir)
-                self.logger.warning(f"Создана папка {self.sessions_dir}. Добавьте файлы сессий.")
+                self.logger.info(f"Создана папка {self.sessions_dir}")
                 return False
                 
             session_files = [f for f in os.listdir(self.sessions_dir) if f.endswith('.session')]
             
             if not session_files:
-                self.logger.warning("Не найдено файлов сессий в папке sessions/")
+                self.logger.info("Не найдено файлов сессий в папке sessions/")
                 return False
                 
             for session_file in session_files:
                 account_name = session_file.replace('.session', '')
                 session_path = os.path.join(self.sessions_dir, session_file)
                 
-                self.accounts[account_name] = {
-                    'session_path': session_path,
-                    'client': None,
-                    'is_active': False,
-                    'last_used': None,
-                    'messages_sent': 0,
-                    'status': 'ready'
-                }
+                # Проверяем базовую целостность session файла
+                if self._check_session_file_integrity(session_path):
+                    self.accounts[account_name] = {
+                        'session_path': session_path,
+                        'client': None,
+                        'is_active': False,
+                        'last_used': None,
+                        'messages_sent': 0,
+                        'status': 'ready'
+                    }
+                else:
+                    self.logger.info(f"Session файл {session_file} поврежден, пропускаем")
                 
+            if len(self.accounts) == 0:
+                self.logger.info("Не найдено валидных session файлов")
+                return False
+            
             self.logger.info(f"Загружено {len(self.accounts)} аккаунтов")
             return True
             
@@ -126,13 +184,45 @@ class AccountManager:
                     self.logger.error(f"Не удалось подключить {account_name} после {max_retries} попыток: {e}")
                     return False
                     
-            except Exception as e:
-                # Критические ошибки - не повторяем
+            except (AuthKeyUnregisteredError, AuthKeyDuplicatedError, AuthKeyInvalidError) as e:
+                # Поврежденная сессия - удаляем и сообщаем
                 if client:
                     try:
                         await client.disconnect()
                     except:
                         pass
+                
+                error_messages = {
+                    'AuthKeyUnregisteredError': 'Сессия не зарегистрирована в Telegram',
+                    'AuthKeyDuplicatedError': 'Дублированный ключ авторизации',
+                    'AuthKeyInvalidError': 'Недействительный ключ авторизации'
+                }
+                
+                reason = error_messages.get(type(e).__name__, f'Ошибка авторизации: {e}')
+                self._remove_corrupted_session(account_name, session_path, reason)
+                
+                # Помечаем аккаунт как неактивный
+                self.accounts[account_name]['is_active'] = False
+                self.accounts[account_name]['status'] = 'session_corrupted'
+                
+                return False
+                
+            except Exception as e:
+                # Другие критические ошибки - не повторяем
+                if client:
+                    try:
+                        await client.disconnect()
+                    except:
+                        pass
+                
+                # Проверяем на признаки поврежденной сессии в тексте ошибки
+                error_str = str(e).lower()
+                if any(keyword in error_str for keyword in ['session', 'auth', 'key', 'sqlite', 'database']):
+                    self.logger.warning(f"Возможно поврежденная сессия {account_name}: {e}")
+                    self._remove_corrupted_session(account_name, session_path, f'Подозрение на повреждение: {e}')
+                    self.accounts[account_name]['is_active'] = False
+                    self.accounts[account_name]['status'] = 'session_corrupted'
+                    return False
                 
                 self.logger.error(f"Критическая ошибка подключения {account_name}: {type(e).__name__}: {e}", exc_info=True)
                 return False
@@ -209,10 +299,6 @@ class AccountManager:
         print(f"❌ Заблокированных: {stats['blocked_accounts']}")
         print(f"⚠️ Неактивных: {stats['total_accounts'] - stats['active_accounts']}")
         
-        if stats['total_accounts'] > 0:
-            success_rate = (stats['active_accounts'] / stats['total_accounts']) * 100
-            print(f"📈 Процент активных: {success_rate:.1f}%")
-        
         print("\n" + "-"*60)
         print("📋 ДЕТАЛЬНАЯ ИНФОРМАЦИЯ ПО АККАУНТАМ:")
         print("-"*60)
@@ -241,9 +327,8 @@ class AccountManager:
                 status_text = details['status'].upper()
             
             print(f"\n{status_icon} {account_name}")
-            print(f"   📞 Номер: {account_name}")
-            print(f"   🔗 Статус: {status_text}")
-            print(f"   📤 Отправлено сообщений: {details['messages_sent']}")
+            print(f"   � НСтатус: {status_text}(Если уже был подключен через кнопку 3 можно переподключить все отключенные аккаунты)")
+            print(f"   �  Отправлено сообщений: {details['messages_sent']}")
             
             # Форматируем время последнего использования
             if details['last_used'] and details['last_used'] > 0:
@@ -282,10 +367,16 @@ class AccountManager:
         
         # Сначала отключаем
         account_data = self.accounts[account_name]
-        if account_data['client'] and account_data['is_active']:
+        if account_data['client']:
             try:
-                await account_data['client'].disconnect()
+                # Корректное отключение с ожиданием завершения задач
+                if account_data['client'].is_connected():
+                    await asyncio.wait_for(account_data['client'].disconnect(), timeout=5.0)
+                    # Даем время на завершение всех фоновых задач
+                    await asyncio.sleep(0.5)
                 self.logger.info(f"Аккаунт {account_name} отключен для переподключения")
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Таймаут при отключении {account_name}")
             except Exception as e:
                 self.logger.warning(f"Ошибка при отключении {account_name}: {e}")
         
@@ -293,6 +384,9 @@ class AccountManager:
         account_data['client'] = None
         account_data['is_active'] = False
         account_data['status'] = 'reconnecting'
+        
+        # Даем время на очистку ресурсов
+        await asyncio.sleep(0.3)
         
         # Подключаем заново
         return await self.connect_account(account_name, api_id, api_hash)
@@ -314,11 +408,17 @@ class AccountManager:
                 if isinstance(result, Exception):
                     account_name = list(self.accounts.keys())[i]
                     self.logger.error(f"Ошибка отключения {account_name}: {result}")
+            
+            # Даем дополнительное время на завершение всех фоновых задач
+            await asyncio.sleep(1.0)
     
     async def _disconnect_single_account(self, account_name: str, account_data: dict):
         """Отключение одного аккаунта с таймаутом"""
         try:
-            await asyncio.wait_for(account_data['client'].disconnect(), timeout=10.0)
+            if account_data['client'].is_connected():
+                await asyncio.wait_for(account_data['client'].disconnect(), timeout=10.0)
+                # Даем время на завершение фоновых задач
+                await asyncio.sleep(0.3)
             account_data['is_active'] = False
             account_data['status'] = 'disconnected'
             self.logger.info(f"Аккаунт {account_name} отключен")
@@ -363,15 +463,25 @@ class AccountManager:
         """Автоматическое переподключение неудачных аккаунтов"""
         health_status = await self.check_connections_health()
         reconnected = 0
+        failed_accounts = [name for name, is_healthy in health_status.items() 
+                          if not is_healthy and name not in self.blocked_accounts]
         
-        for account_name, is_healthy in health_status.items():
-            if not is_healthy and account_name not in self.blocked_accounts:
-                self.logger.info(f"Попытка переподключения {account_name}...")
-                if await self.reconnect_account(account_name, api_id, api_hash):
-                    reconnected += 1
-                    self.logger.info(f"✅ {account_name} успешно переподключен")
-                else:
-                    self.logger.warning(f"❌ Не удалось переподключить {account_name}")
+        if not failed_accounts:
+            return 0
+        
+        print(f"🔄 Переподключение {len(failed_accounts)} аккаунтов...")
+        
+        for i, account_name in enumerate(failed_accounts, 1):
+            print(f"   [{i}/{len(failed_accounts)}] Переподключение {account_name}...", end=" ")
+            self.logger.info(f"Попытка переподключения {account_name}...")
+            
+            if await self.reconnect_account(account_name, api_id, api_hash):
+                reconnected += 1
+                print("✅")
+                self.logger.info(f"{account_name} успешно переподключен")
+            else:
+                print("❌")
+                self.logger.warning(f"Не удалось переподключить {account_name}")
         
         return reconnected
     
@@ -399,3 +509,30 @@ class AccountManager:
         except Exception as e:
             self.logger.error(f"Ошибка добавления аккаунта {account_name}: {e}", exc_info=True)
             return False
+    
+    def cleanup_corrupted_sessions(self) -> int:
+        """Очистка всех поврежденных session файлов"""
+        cleaned_count = 0
+        
+        try:
+            if not os.path.exists(self.sessions_dir):
+                return 0
+            
+            session_files = [f for f in os.listdir(self.sessions_dir) if f.endswith('.session')]
+            
+            for session_file in session_files:
+                session_path = os.path.join(self.sessions_dir, session_file)
+                account_name = session_file.replace('.session', '')
+                
+                if not self._check_session_file_integrity(session_path):
+                    if self._remove_corrupted_session(account_name, session_path, "Не прошел проверку целостности"):
+                        cleaned_count += 1
+            
+            if cleaned_count > 0:
+                self.logger.info(f"Очищено {cleaned_count} поврежденных session файлов")
+            
+            return cleaned_count
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка очистки поврежденных сессий: {e}")
+            return 0

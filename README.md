@@ -1,132 +1,60 @@
-# Telegram Multi-Account Message Sender
+# 🤖 Telegram Multi-Account Message Sender
 
-Продвинутая система рассылки сообщений с мультиаккаунтной поддержкой, умным планировщиком, интеграцией со скрапером каналов и защитой от блокировок.
+An advanced multi-account message broadcasting system with smart scheduling, Telegram channel scraper integration, and anti-ban protection.
 
-## Возможности
+## 🚀 Features
 
-- 🔄 Мультиаккаунтная поддержка с автоматическим переключением
-- 🛡️ Защита от блокировок с адаптивным rate limiting
-- ⚡ Умный планировщик с оптимизацией времени отправки
-- 📊 Интеграция со скрапером Telegram каналов
-- 🎯 Статистика отправки и мониторинг аккаунтов
-- 🔧 Горячая замена заблокированных аккаунтов
-- 📈 Адаптивные алгоритмы распределения нагрузки
+- 🔄 Multi-account support with automatic account switching
+- 🛡️ Anti-ban protection with adaptive rate limiting
+- ⚡ Smart scheduler with send-time optimization
+- 📊 Telegram channel scraper integration
+- 🎯 Send statistics and account monitoring
+- 🔧 Hot-swap of blocked accounts
+- 📈 Adaptive load distribution algorithms
 
-## Структура проекта
+## 📁 Project Structure
 
 ```
 spam_bot/
 ├── src/
-│   ├── __init__.py                         # Инициализация пакета
-│   ├── account_manager.py                  # Управление аккаунтами и их статусами
-│   ├── auth_manager.py                     # Авторизация и управление сессиями
-│   ├── rate_limiter.py                     # Адаптивный контроль лимитов
-│   ├── smart_scheduler.py                  # Умный планировщик отправки
-│   ├── sender.py                           # Основная логика отправки сообщений
-│   ├── message_queue.py                    # Очередь сообщений и распределение
-│   ├── channel_scraper_integration.py      # Интеграция со скрапером каналов
-│   └── telegram_channel_scraper_single_json.py  # Скрапер каналов
-├── sessions/                               # Сессии аккаунтов
+│   ├── __init__.py                              # Package initialization
+│   ├── account_manager.py                       # Account management and status tracking
+│   ├── auth_manager.py                          # Authorization and session management
+│   ├── rate_limiter.py                          # Adaptive rate limit control
+│   ├── smart_scheduler.py                       # Smart send scheduler
+│   ├── sender.py                                # Core message sending logic
+│   ├── message_queue.py                         # Message queue and distribution
+│   ├── channel_scraper_integration.py           # Channel scraper integration
+│   └── telegram_channel_scraper_single_json.py  # Telegram channel scraper
+├── sessions/                                    # Account sessions
 │   └── .gitkeep
-├── data/                                   # Данные для рассылки
+├── data/                                        # Broadcast data
 │   ├── messages_data.json
 │   ├── failed_messages.json
 │   └── message.txt
-├── requirements.txt                        # Зависимости проекта
-└── main.py                                 # Точка входа в приложение
+├── requirements.txt                             # Project dependencies
+└── main.py                                      # Application entry point
 ```
 
-## Установка
+## 🛠 Installation
 
-1. Клонируйте репозиторий:
-```bash
-git clone https://github.com/Totsamuychel/Spam_bot.git
-cd spam_bot
-```
+1. `git clone https://github.com/Totsamuychel/Spam_bot.git && cd spam_bot`
+2. `pip install -r requirements.txt`
+3. Configure API credentials (`.env` or `config.json`)
+4. Add account sessions to `sessions/`
+5. Configure `data/messages_data.json`
 
-2. Установите зависимости:
-```bash
-pip install -r requirements.txt
-```
+## ▶️ Usage
 
-3. Настройте API данные (один из способов):
-
-**Способ 1: .env файл (рекомендуется для exe)**
-```bash
-# Скопируйте .env.example в .env
-cp .env.example .env
-# Отредактируйте .env файл, указав ваши API данные
-```
-
-**Способ 2: Интерактивная настройка**
-При первом запуске программа автоматически запросит API данные и создаст config.json
-
-4. Добавьте файлы сессий в папку `sessions/` (будет создано автоматически при первом запуске)
-
-5. Настройте данные для рассылки в `data/messages_data.json` (можно собрать через встроенный скрапер каналов)
-
-## Использование
-
-### Запуск бота
 ```bash
 python main.py
 ```
 
-### Основные команды
+## 📄 messages_data.json Format
 
-- **Добавить аккаунт** - Загрузка новой сессии аккаунта
-- **Получить активный аккаунт** - Выбор следующего доступного аккаунта
-- **Пометить как заблокированный** - Исключение аккаунта из ротации
-- **Статистика** - Просмотр статуса всех аккаунтов и метрик
-
-## Как это работает
-
-### 1. Управление аккаунтами (`account_manager.py`)
-- Загрузка и хранение сессий всех аккаунтов
-- Автоматический пропуск заблокированных аккаунтов
-- Горячее добавление/удаление аккаунтов
-- Мониторинг статуса каждого аккаунта
-
-### 2. Адаптивный контроль лимитов (`rate_limiter.py`)
-Продвинутая система защиты от превышения лимитов:
-- Адаптивные алгоритмы на основе истории отправки
-- Машинное обучение для предсказания блокировок
-- Динамическая корректировка задержек
-- Анализ паттернов успешных отправок
-
-### 3. Умный планировщик (`smart_scheduler.py`)
-- Оптимизация времени отправки на основе статистики
-- Распределение нагрузки между аккаунтами
-- Адаптация к изменениям в лимитах Telegram
-- Предсказание оптимальных временных окон
-
-### 4. Интеграция со скрапером (`channel_scraper_integration.py`)
-- Автоматический сбор пользователей из каналов
-- Фильтрация и валидация собранных данных
-- Интеграция с основной системой рассылки
-- Обновление базы получателей
-
-### 5. Отправка сообщений (`sender.py`)
-- Основная логика отправки через Telegram API
-- Чтение данных пользователей из JSON
-- Отправка по ID или номеру телефона
-- Обработка ошибок и исключений
-
-## Лимиты Telegram
-
-Система использует адаптивные алгоритмы для работы с ограничениями:
-- Динамическое определение лимитов для каждого аккаунта
-- Машинное обучение для предсказания блокировок
-- Автоматическая корректировка скорости отправки
-- Анализ паттернов успешных и неуспешных отправок
-- Защита от спам-фильтров с адаптацией поведения
-
-## Формат данных
-
-### messages_data.json
 ```json
 {
-  "message": "Текст сообщения для рассылки",
+  "message": "Text of the message to broadcast",
   "recipients": [
     {
       "user_id": 123456789,
@@ -139,34 +67,45 @@ python main.py
 }
 ```
 
-## Безопасность
-
-- Все сессии хранятся локально
-- Автоматическое управление лимитами API
-- Защита от массовых блокировок
-- Логирование всех операций
-
-## Требования
+## 📋 Requirements
 
 - Python 3.8+
-- Активные Telegram аккаунты
-- API ключи Telegram (api_id, api_hash)
-- Зависимости из requirements.txt:
-  - telethon
-  - asyncio
-  - json
-  - logging
-  - datetime
-  - random
+- `telethon`, `asyncio`, `json`, `logging`, `datetime`, `random`
 
-## Поддержка
+## 📈 Workflow
 
-При возникновении проблем:
-1. Проверьте логи в консоли
-2. Убедитесь в валидности сессий
-3. Проверьте лимиты аккаунтов
-4. Обновите заблокированные аккаунты
+```mermaid
+graph TD
+    A([Start: python main.py]) --> B[Load config & sessions]
+    B --> C[AccountManager: initialize accounts]
+    C --> D{Accounts available?}
+    D -->|No| E[Error: no valid sessions]
+    D -->|Yes| F[Load messages_data.json]
+    F --> G[Build recipient list]
+    G --> H{Use channel scraper?}
+    H -->|Yes| I[ChannelScraperIntegration: fetch members]
+    H -->|No| J[Use static recipient list]
+    I & J --> K[MessageQueue: distribute recipients across accounts]
+    K --> L[SmartScheduler: calculate optimal send times]
+    L --> M[Sender: send messages]
+    M --> N{RateLimiter: limit reached?}
+    N -->|Yes| O[Wait / switch account]
+    O --> M
+    N -->|No| P{Account banned?}
+    P -->|Yes| Q[Hot-swap: replace with backup account]
+    Q --> M
+    P -->|No| R[Log result to statistics]
+    R --> S{More recipients?}
+    S -->|Yes| M
+    S -->|No| T([Done: broadcast complete])
 
----
+    style A fill:#2d6a4f,color:#fff
+    style T fill:#2d6a4f,color:#fff
+    style E fill:#c0392b,color:#fff
+    style Q fill:#e76f51,color:#fff
+    style O fill:#f4a261,color:#000
+```
 
-**Внимание**: Используйте бота в соответствии с правилами Telegram и применимым законодательством.
+## 📄 License
+
+MIT
